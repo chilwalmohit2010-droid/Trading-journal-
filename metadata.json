@@ -1,0 +1,6 @@
+{
+  "name": "Trading Diary GM",
+  "description": "Professional Trading Diary GM with real-time performance scoring, global leaderboard, and glassmorphic trade journal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
