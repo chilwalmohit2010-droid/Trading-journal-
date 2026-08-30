@@ -27,16 +27,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -51,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -60,9 +56,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.AppThemeMode
 import com.example.data.model.LeaderboardEntry
 import com.example.data.model.Trade
-import com.example.data.model.TradeResult
 import com.example.data.model.TradingStats
 import com.example.data.model.UserProfile
 import com.example.ui.TradeFilter
@@ -70,37 +66,22 @@ import com.example.ui.components.CurrencyPnlText
 import com.example.ui.components.DirectionBadge
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
+import com.example.ui.components.ResultBadge
+import com.example.ui.components.UserAvatar
 import com.example.ui.dialogs.AddEditTradeDialog
+import com.example.ui.dialogs.EditProfileDialog
 import com.example.ui.dialogs.ScoreGuideDialog
 import com.example.ui.journal.JournalView
 import com.example.ui.leaderboard.LeaderboardView
-import com.example.ui.theme.BlueAccent
-import com.example.ui.theme.CrimsonLoss
-import com.example.ui.theme.EmeraldAccent
-import com.example.ui.theme.EmeraldSolid
-import com.example.ui.theme.EmeraldWin
-import com.example.ui.theme.EmeraldWinBg
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
-import com.example.ui.theme.OrangeStreak
-import com.example.ui.theme.SleekBg
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekBorderHighlight
-import com.example.ui.theme.SleekBorderSubtle
-import com.example.ui.theme.SleekCard
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.SleekSurface
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TrophyGold
+import com.example.ui.profile.ProfileView
+import com.example.ui.theme.LiquidTheme
 import java.util.Locale
 
 enum class DashboardTab {
     OVERVIEW,
     JOURNAL,
-    LEADERBOARD
+    LEADERBOARD,
+    PROFILE
 }
 
 @Composable
@@ -111,8 +92,10 @@ fun DashboardScreen(
     leaderboard: List<LeaderboardEntry>,
     selectedFilter: TradeFilter,
     searchQuery: String,
+    themeMode: AppThemeMode,
     isAddEditOpen: Boolean,
     tradeToEdit: Trade?,
+    isEditProfileOpen: Boolean,
     isActionLoading: Boolean,
     snackbarMessage: String?,
     onFilterSelect: (TradeFilter) -> Unit,
@@ -122,9 +105,15 @@ fun DashboardScreen(
     onCloseAddEdit: () -> Unit,
     onSaveTrade: (Trade) -> Unit,
     onDeleteTrade: (String) -> Unit,
+    onOpenEditProfile: () -> Unit,
+    onCloseEditProfile: () -> Unit,
+    onSaveProfile: (username: String, displayName: String, bio: String, photoURL: String, onComplete: (Boolean, String?) -> Unit) -> Unit,
+    onUploadPhoto: (ByteArray, (String?) -> Unit) -> Unit,
+    onThemeChange: (AppThemeMode) -> Unit,
     onLogout: () -> Unit,
     onDismissSnackbar: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
     var selectedTab by remember { mutableStateOf(DashboardTab.OVERVIEW) }
     var isScoreGuideOpen by remember { mutableStateOf(false) }
 
@@ -139,22 +128,25 @@ fun DashboardScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = SleekBg,
+        containerColor = colors.bg,
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(SleekBg)
+                .background(colors.bg)
         ) {
-            // Subtle ambient glows from top and corners
+            // Subtle ambient glows
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.radialGradient(
-                            colors = listOf(Color(0x1A6366F1), Color.Transparent),
+                            colors = listOf(
+                                colors.indigoAccent.copy(alpha = if (colors.isDark) 0.12f else 0.06f),
+                                Color.Transparent
+                            ),
                             radius = 700f
                         )
                     )
@@ -165,13 +157,14 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .statusBarsPadding()
             ) {
-                // Sleek Top App Bar
+                // Top Header Bar
                 TopTradingHeader(
                     username = currentUser?.username ?: "Trader",
+                    photoUrl = currentUser?.photoURL,
                     score = stats.currentScore,
                     rank = stats.rank,
                     onScoreGuideClick = { isScoreGuideOpen = true },
-                    onLogout = onLogout
+                    onProfileClick = { selectedTab = DashboardTab.PROFILE }
                 )
 
                 // Tab Content Switcher
@@ -183,8 +176,8 @@ fun DashboardScreen(
                     AnimatedContent(
                         targetState = selectedTab,
                         transitionSpec = {
-                            fadeIn(animationSpec = tween(200)) togetherWith
-                                    fadeOut(animationSpec = tween(150))
+                            fadeIn(animationSpec = tween(220)) togetherWith
+                                    fadeOut(animationSpec = tween(180))
                         },
                         label = "tab_content_animation"
                     ) { tab ->
@@ -214,11 +207,29 @@ fun DashboardScreen(
                                 leaderboard = leaderboard,
                                 onScoreGuideClick = { isScoreGuideOpen = true }
                             )
+
+                            DashboardTab.PROFILE -> currentUser?.let { user ->
+                                ProfileView(
+                                    user = user,
+                                    stats = stats,
+                                    themeMode = themeMode,
+                                    onThemeChange = onThemeChange,
+                                    onEditProfileClick = onOpenEditProfile,
+                                    onPhotoSelected = { bytes ->
+                                        onUploadPhoto(bytes) { uploadedUrl ->
+                                            if (uploadedUrl != null) {
+                                                onSaveProfile(user.username, user.displayName, user.bio, uploadedUrl) { _, _ -> }
+                                            }
+                                        }
+                                    },
+                                    onLogout = onLogout
+                                )
+                            }
                         }
                     }
                 }
 
-                // Sleek Floating Bottom Navigation Bar with Diamond FAB
+                // Sleek Floating Bottom Navigation Bar (4 tabs + centered elevated FAB)
                 SleekBottomNav(
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
@@ -238,6 +249,19 @@ fun DashboardScreen(
         )
     }
 
+    // Edit Profile Modal Dialog
+    if (isEditProfileOpen && currentUser != null) {
+        EditProfileDialog(
+            currentUser = currentUser,
+            isLoading = isActionLoading,
+            onDismiss = onCloseEditProfile,
+            onSaveProfile = { uname, dname, bio, photo ->
+                onSaveProfile(uname, dname, bio, photo) { _, _ -> }
+            },
+            onUploadPhoto = onUploadPhoto
+        )
+    }
+
     // Score Guide Modal Dialog
     if (isScoreGuideOpen) {
         ScoreGuideDialog(onDismiss = { isScoreGuideOpen = false })
@@ -247,67 +271,57 @@ fun DashboardScreen(
 @Composable
 private fun TopTradingHeader(
     username: String,
+    photoUrl: String?,
     score: Long,
     rank: Int,
     onScoreGuideClick: () -> Unit,
-    onLogout: () -> Unit
+    onProfileClick: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // User Avatar with multi-color gradient + online dot
-            Box(modifier = Modifier.size(44.dp)) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(IndigoAccent, BlueAccent, EmeraldAccent)
-                            )
-                        )
-                        .border(1.5.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                ) {
-                    Text(
-                        text = username.take(1).uppercase(),
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 17.sp
-                    )
-                }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(onClick = onProfileClick)
+        ) {
+            Box(modifier = Modifier.size(42.dp)) {
+                UserAvatar(
+                    photoUrl = photoUrl,
+                    username = username,
+                    size = 42.dp
+                )
 
                 // Online indicator
                 Box(
                     modifier = Modifier
-                        .size(11.dp)
+                        .size(10.dp)
                         .align(Alignment.BottomEnd)
                         .clip(CircleShape)
-                        .background(EmeraldSolid)
-                        .border(2.dp, SleekBg, CircleShape)
+                        .background(colors.emeraldWin)
+                        .border(2.dp, colors.surface, CircleShape)
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column {
                 Text(
                     text = "RANK #$rank",
-                    color = TextMuted,
+                    color = colors.textMuted,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp
+                    letterSpacing = 1.sp
                 )
                 Text(
-                    text = username,
-                    color = TextPrimary,
+                    text = "@$username",
+                    color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 15.sp
                 )
             }
         }
@@ -317,48 +331,28 @@ private fun TopTradingHeader(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SleekCard)
-                    .border(1.dp, TrophyGold.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.card)
+                    .border(1.dp, colors.trophyGold.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
                     .clickable { onScoreGuideClick() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
                     .testTag("btn_score_guide")
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.EmojiEvents,
                         contentDescription = "Score Guide",
-                        tint = TrophyGold,
-                        modifier = Modifier.size(13.dp)
+                        tint = colors.trophyGold,
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "$score PTS",
-                        color = TrophyGold,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
+                        color = colors.trophyGold,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Logout Button
-            IconButton(
-                onClick = onLogout,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(SleekCard)
-                    .border(1.dp, SleekBorder, CircleShape)
-                    .testTag("btn_logout")
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                    contentDescription = "Log Out",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(16.dp)
-                )
             }
         }
     }
@@ -372,229 +366,177 @@ private fun OverviewTabContent(
     onViewAllJournal: () -> Unit,
     onScoreGuideClick: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp)
-            .testTag("overview_tab_content")
+            .testTag("overview_tab")
     ) {
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // Sleek 2x2 Metrics Overview Grid
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Hero Score & Rank Performance Card
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("score_hero_card"),
+            shape = RoundedCornerShape(24.dp),
+            borderColor = colors.borderHighlight
         ) {
-            // Card 1: Total Realized Net P&L
-            GlassCard(
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(130.dp),
-                backgroundColor = SleekCard
+                    .fillMaxWidth()
+                    .padding(20.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column {
                         Text(
-                            text = "TOTAL NET P&L",
-                            color = TextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "GM TRADING SCORE",
+                            color = colors.textMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
-                        Icon(
-                            imageVector = Icons.Default.TrendingUp,
-                            contentDescription = null,
-                            tint = if (stats.totalPnl >= 0) EmeraldWin else CrimsonLoss,
-                            modifier = Modifier.size(14.dp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${stats.currentScore}",
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 34.sp
                         )
                     }
 
-                    CurrencyPnlText(
-                        amount = stats.totalPnl,
-                        fontSize = 20
-                    )
-
-                    Row(
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (stats.totalPnl >= 0) EmeraldWinBg else Color(0x1AF43F5E))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(colors.indigoDark, colors.indigoAccent)
+                                )
+                            )
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "GLOBAL RANK",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "#${stats.rank}",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Win rate progress indicator
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = if (stats.profitFactor >= 99) "PF: ∞" else String.format(Locale.US, "PF: %.2f", stats.profitFactor),
-                            color = if (stats.totalPnl >= 0) EmeraldWin else CrimsonLoss,
-                            fontSize = 10.sp,
+                            text = "Win Rate Performance",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = String.format(Locale.US, "%.1f%%", stats.winRate),
+                            color = colors.emeraldWin,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LinearProgressIndicator(
+                        progress = { (stats.winRate / 100.0).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = colors.emeraldWin,
+                        trackColor = if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A)
+                    )
                 }
-            }
 
-            // Card 2: Win Rate
-            GlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(130.dp),
-                backgroundColor = SleekCard
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Quick stats summary
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "WIN RATE",
-                            color = TextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp
-                        )
-                        Icon(
-                            imageVector = Icons.Default.PieChart,
-                            contentDescription = null,
-                            tint = IndigoLight,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-
-                    Text(
-                        text = String.format(Locale.US, "%.1f%%", stats.winRate),
-                        color = IndigoLight,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 20.sp
-                    )
-
-                    Text(
-                        text = "${stats.wins} Wins / ${stats.losses} Losses",
-                        color = TextSecondary,
-                        fontSize = 10.sp
-                    )
+                    OverviewMiniStat(label = "Total Trades", value = "${stats.totalTrades}")
+                    OverviewMiniStat(label = "Wins", value = "${stats.wins}", valueColor = colors.emeraldWin)
+                    OverviewMiniStat(label = "Losses", value = "${stats.losses}", valueColor = colors.crimsonLoss)
+                    OverviewMiniStat(label = "Profit Factor", value = if (stats.profitFactor > 0) String.format(Locale.US, "%.2f", stats.profitFactor) else "—")
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        Row(
+        // Total Net P&L Card
+        GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            shape = RoundedCornerShape(20.dp)
         ) {
-            // Card 3: GM Trader Score
-            GlassCard(
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(130.dp)
-                    .clickable { onScoreGuideClick() },
-                backgroundColor = SleekCard
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "GM SCORE",
-                            color = TextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp
-                        )
-                        Icon(
-                            imageVector = Icons.Default.EmojiEvents,
-                            contentDescription = null,
-                            tint = TrophyGold,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-
+                Column {
                     Text(
-                        text = "${stats.currentScore}",
-                        color = TrophyGold,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 20.sp
+                        text = "TOTAL NET P&L",
+                        color = colors.textMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
                     )
-
-                    // Subtle glowing score progress indicator
-                    val scoreFraction = ((stats.currentScore - 1000).coerceAtLeast(0) % 1000) / 1000f
-                    LinearProgressIndicator(
-                        progress = { if (scoreFraction == 0f && stats.currentScore >= 1000) 0.5f else scoreFraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = TrophyGold,
-                        trackColor = Color.White.copy(alpha = 0.1f)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    CurrencyPnlText(
+                        amount = stats.totalPnl,
+                        fontSize = 24
                     )
                 }
-            }
 
-            // Card 4: Total Trades & Discipline
-            GlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(130.dp),
-                backgroundColor = SleekCard
-            ) {
-                Column(
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(if (stats.totalPnl >= 0) colors.emeraldWinBg else colors.crimsonLossBg)
+                        .border(
+                            1.dp,
+                            if (stats.totalPnl >= 0) colors.emeraldWin.copy(alpha = 0.4f) else colors.crimsonLoss.copy(alpha = 0.4f),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "TOTAL TRADES",
-                            color = TextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp
-                        )
-                        Icon(
-                            imageVector = Icons.Default.AutoGraph,
-                            contentDescription = null,
-                            tint = OrangeStreak,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-
-                    Text(
-                        text = "${stats.totalTrades}",
-                        color = OrangeStreak,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 20.sp
-                    )
-
-                    Text(
-                        text = if (stats.avgRiskReward > 0) String.format(Locale.US, "Avg R:R 1:%.2f", stats.avgRiskReward) else "Discipline Active",
-                        color = TextSecondary,
-                        fontSize = 10.sp
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = null,
+                        tint = if (stats.totalPnl >= 0) colors.emeraldWin else colors.crimsonLoss,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -602,83 +544,114 @@ private fun OverviewTabContent(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Main Container / Curved Activity Section
-        GlassCard(
+        // Recent Trades Header
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            backgroundColor = SleekCardElevated,
-            borderColor = SleekBorder,
-            shape = RoundedCornerShape(24.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
+            Text(
+                text = "RECENT TRADES",
+                color = colors.textMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+
+            Text(
+                text = "View All (${stats.totalTrades})",
+                color = colors.indigoAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
+                    .clickable(onClick = onViewAllJournal)
+                    .testTag("btn_view_all_trades")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (recentTrades.isEmpty()) {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp)
             ) {
-                // Section Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "RECENT ACTIVITY",
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        letterSpacing = 0.5.sp
+                        text = "No trades recorded yet",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
                     )
-
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "View All >",
-                        color = IndigoLight,
+                        text = "Start tracking your setups to compute your real-time GM score.",
+                        color = colors.textMuted,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { onViewAllJournal() }
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    GlassButton(
+                        text = "Log First Trade",
+                        icon = Icons.Default.Add,
+                        onClick = onAddTradeClick,
+                        modifier = Modifier.fillMaxWidth(0.7f),
+                        testTag = "btn_log_first_trade"
                     )
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                if (recentTrades.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("No trades recorded yet", color = TextSecondary, fontSize = 13.sp)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        GlassButton(
-                            text = "+ Log First Trade",
-                            onClick = onAddTradeClick,
-                            modifier = Modifier.width(180.dp)
-                        )
-                    }
-                } else {
-                    recentTrades.forEach { trade ->
-                        RecentTradeRow(trade = trade)
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                recentTrades.forEach { trade ->
+                    RecentTradeRow(trade = trade)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(90.dp))
+        Spacer(modifier = Modifier.height(84.dp))
+    }
+}
+
+@Composable
+private fun OverviewMiniStat(
+    label: String,
+    value: String,
+    valueColor: Color = LiquidTheme.colors.textPrimary
+) {
+    val colors = LiquidTheme.colors
+    Column {
+        Text(
+            text = label,
+            color = colors.textMuted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            color = valueColor,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp
+        )
     }
 }
 
 @Composable
 private fun RecentTradeRow(trade: Trade) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0x0DFFFFFF))
-            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+    val colors = LiquidTheme.colors
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -688,28 +661,23 @@ private fun RecentTradeRow(trade: Trade) {
                 Column {
                     Text(
                         text = trade.symbol,
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 14.sp
                     )
                     Text(
-                        text = trade.result.name,
-                        color = when (trade.result) {
-                            TradeResult.WIN -> EmeraldWin
-                            TradeResult.LOSS -> CrimsonLoss
-                            TradeResult.BREAKEVEN -> TextSecondary
-                            TradeResult.OPEN -> TrophyGold
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                        text = trade.strategy.ifEmpty { "Price Action" },
+                        color = colors.textMuted,
+                        fontSize = 11.sp
                     )
                 }
             }
 
-            CurrencyPnlText(
-                amount = trade.pnl,
-                fontSize = 14
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ResultBadge(result = trade.result)
+                Spacer(modifier = Modifier.width(10.dp))
+                CurrencyPnlText(amount = trade.pnl, fontSize = 14)
+            }
         }
     }
 }
@@ -720,66 +688,104 @@ private fun SleekBottomNav(
     onTabSelected: (DashboardTab) -> Unit,
     onFabClick: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Bottom Bar Background
+        // Frosted Glass Bar with exactly 4 tabs + centered elevated slot
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .background(Color(0xFA050608))
-                .border(1.dp, SleekBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .padding(horizontal = 24.dp)
+                .shadow(
+                    elevation = if (colors.isDark) 12.dp else 6.dp,
+                    shape = RoundedCornerShape(24.dp),
+                    ambientColor = if (colors.isDark) Color.Black.copy(alpha = 0.5f) else Color(0x1F000000),
+                    spotColor = if (colors.isDark) Color.Black.copy(alpha = 0.7f) else Color(0x29000000)
+                )
+                .clip(RoundedCornerShape(24.dp))
+                .background(colors.surface.copy(alpha = if (colors.isDark) 0.88f else 0.96f))
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        listOf(
+                            colors.border.copy(alpha = 0.8f),
+                            colors.border.copy(alpha = 0.2f),
+                            Color.White.copy(alpha = if (colors.isDark) 0.05f else 0.4f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
             Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Tabs: Dashboard
+                // Tab 1: Overview
                 SleekNavTab(
-                    label = "Dash",
-                    icon = Icons.Default.Timeline,
+                    label = "Overview",
+                    icon = Icons.Default.AutoGraph,
                     isSelected = selectedTab == DashboardTab.OVERVIEW,
                     onClick = { onTabSelected(DashboardTab.OVERVIEW) },
-                    testTag = "nav_overview"
+                    testTag = "nav_overview",
+                    modifier = Modifier.weight(1f)
                 )
 
-                // Journal
+                // Tab 2: Journal
                 SleekNavTab(
                     label = "Journal",
                     icon = Icons.Default.Book,
                     isSelected = selectedTab == DashboardTab.JOURNAL,
                     onClick = { onTabSelected(DashboardTab.JOURNAL) },
-                    testTag = "nav_journal"
+                    testTag = "nav_journal",
+                    modifier = Modifier.weight(1f)
                 )
 
-                Spacer(modifier = Modifier.width(48.dp)) // Space for center FAB
+                // Spacer for Center Elevated FAB
+                Spacer(modifier = Modifier.weight(1.1f))
 
-                // Leaderboard
+                // Tab 3: Rank
                 SleekNavTab(
                     label = "Rank",
                     icon = Icons.Default.EmojiEvents,
                     isSelected = selectedTab == DashboardTab.LEADERBOARD,
                     onClick = { onTabSelected(DashboardTab.LEADERBOARD) },
-                    testTag = "nav_leaderboard"
+                    testTag = "nav_leaderboard",
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Tab 4: Profile
+                SleekNavTab(
+                    label = "Profile",
+                    icon = Icons.Default.Person,
+                    isSelected = selectedTab == DashboardTab.PROFILE,
+                    onClick = { onTabSelected(DashboardTab.PROFILE) },
+                    testTag = "nav_profile",
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // Diamond Center Floating Action Button (-mt-12)
+        // Diamond Center Floating Action Button
         Box(
             modifier = Modifier
-                .offset(y = (-20).dp)
-                .size(52.dp)
-                .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = IndigoAccent)
-                .clip(RoundedCornerShape(16.dp))
-                .background(IndigoDark)
-                .border(3.dp, SleekBg, RoundedCornerShape(16.dp))
+                .offset(y = (-14).dp)
+                .size(54.dp)
+                .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = colors.indigoAccent)
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(colors.indigoDark, colors.indigoAccent)
+                    )
+                )
+                .border(2.5.dp, colors.bg, RoundedCornerShape(18.dp))
                 .clickable(onClick = onFabClick)
                 .testTag("fab_add_trade"),
             contentAlignment = Alignment.Center
@@ -788,7 +794,7 @@ private fun SleekBottomNav(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Log Trade",
                 tint = Color.White,
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
     }
@@ -800,17 +806,20 @@ private fun SleekNavTab(
     icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    modifier: Modifier = Modifier
 ) {
-    val activeColor = IndigoLight
-    val inactiveColor = TextMuted
+    val colors = LiquidTheme.colors
+    val activeColor = colors.indigoAccent
+    val inactiveColor = colors.textMuted
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = Modifier
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .padding(vertical = 4.dp)
             .testTag(testTag)
     ) {
         Icon(
@@ -824,7 +833,7 @@ private fun SleekNavTab(
             text = label.uppercase(),
             color = if (isSelected) activeColor else inactiveColor,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            fontSize = 10.sp,
+            fontSize = 9.5.sp,
             letterSpacing = 0.5.sp
         )
     }

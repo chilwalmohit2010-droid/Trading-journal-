@@ -19,16 +19,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -39,19 +36,10 @@ import com.example.data.model.TradingStats
 import com.example.data.model.UserProfile
 import com.example.ui.components.GlassCard
 import com.example.ui.components.RankBadge
+import com.example.ui.components.UserAvatar
 import com.example.ui.theme.BronzeRank
-import com.example.ui.theme.EmeraldSolid
-import com.example.ui.theme.EmeraldWin
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
+import com.example.ui.theme.LiquidTheme
 import com.example.ui.theme.SilverRank
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekCard
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TrophyGold
 import java.util.Locale
 
@@ -62,7 +50,7 @@ fun LeaderboardView(
     leaderboard: List<LeaderboardEntry>,
     onScoreGuideClick: () -> Unit
 ) {
-    // Top 10 sorted entries
+    val colors = LiquidTheme.colors
     val top10 = leaderboard.take(10)
     val currentUid = currentUser?.uid ?: ""
 
@@ -79,9 +67,8 @@ fun LeaderboardView(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("user_rank_banner"),
-            backgroundColor = SleekCard,
-            borderColor = IndigoAccent.copy(alpha = 0.4f),
-            shape = RoundedCornerShape(20.dp)
+            shape = RoundedCornerShape(20.dp),
+            borderColor = colors.indigoAccent.copy(alpha = 0.5f)
         ) {
             Row(
                 modifier = Modifier
@@ -91,18 +78,33 @@ fun LeaderboardView(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RankBadge(rank = stats.rank)
+                    UserAvatar(
+                        photoUrl = currentUser?.photoURL,
+                        username = currentUser?.username ?: "Trader",
+                        size = 46.dp
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text(
-                            text = "YOU (${currentUser?.username ?: "Trader"})",
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 15.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "YOU (@${currentUser?.username ?: "Trader"})",
+                                color = colors.textPrimary,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 15.sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.indigoDark)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text("#${stats.rank}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
                         Text(
                             text = if (stats.rank <= 10) "Top 10 Global GM Trader" else "Global Standing: Rank #${stats.rank}",
-                            color = IndigoLight,
+                            color = colors.indigoLight,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -112,13 +114,13 @@ fun LeaderboardView(
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = "${stats.currentScore} PTS",
-                        color = TrophyGold,
+                        color = colors.trophyGold,
                         fontWeight = FontWeight.Black,
                         fontSize = 18.sp
                     )
                     Text(
                         text = String.format(Locale.US, "%.1f%% WR • %d trades", stats.winRate, stats.totalTrades),
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         fontSize = 11.sp
                     )
                 }
@@ -137,13 +139,13 @@ fun LeaderboardView(
                 Icon(
                     imageVector = Icons.Default.EmojiEvents,
                     contentDescription = null,
-                    tint = TrophyGold,
+                    tint = colors.trophyGold,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "GLOBAL TOP 10 LEADERBOARD",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     letterSpacing = 1.sp
@@ -155,12 +157,12 @@ fun LeaderboardView(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(EmeraldSolid)
+                        .background(colors.emeraldWin)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "Live Sync",
-                    color = EmeraldWin,
+                    color = colors.emeraldWin,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -179,7 +181,7 @@ fun LeaderboardView(
             ) {
                 Text(
                     text = "No ranked traders yet. Add your trades to claim #1!",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     fontSize = 13.sp
                 )
             }
@@ -209,21 +211,21 @@ fun LeaderboardView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0x0DFFFFFF))
-                            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(10.dp))
+                            .background(if (colors.isDark) Color(0x0DFFFFFF) else Color(0x0A0F172A))
+                            .border(1.dp, colors.borderSubtle, RoundedCornerShape(10.dp))
                             .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = colors.textMuted,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Privacy Protected: Only usernames & verified scores are shared. Private trades and balances remain confidential.",
-                            color = TextMuted,
+                            color = colors.textMuted,
                             fontSize = 10.sp,
                             lineHeight = 14.sp
                         )
@@ -240,8 +242,9 @@ private fun LeaderboardRow(
     entry: LeaderboardEntry,
     isCurrentUser: Boolean
 ) {
-    val borderColor = if (isCurrentUser) IndigoAccent.copy(alpha = 0.6f) else SleekBorder
-    val bgColor = if (isCurrentUser) Color(0x1F6366F1) else SleekCard
+    val colors = LiquidTheme.colors
+    val borderColor = if (isCurrentUser) colors.indigoAccent.copy(alpha = 0.6f) else colors.border
+    val bgColor = if (isCurrentUser) colors.indigoAccent.copy(alpha = 0.15f) else colors.card
 
     GlassCard(
         modifier = Modifier
@@ -260,12 +263,18 @@ private fun LeaderboardRow(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RankBadge(rank = rank)
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                UserAvatar(
+                    photoUrl = entry.photoURL,
+                    username = entry.username,
+                    size = 38.dp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = entry.username.ifEmpty { "Trader #${entry.uid.take(4)}" },
-                            color = if (isCurrentUser) IndigoLight else TextPrimary,
+                            text = "@${entry.username.ifEmpty { "Trader #${entry.uid.take(4)}" }}",
+                            color = if (isCurrentUser) colors.indigoLight else colors.textPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -274,7 +283,7 @@ private fun LeaderboardRow(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(IndigoDark)
+                                    .background(colors.indigoDark)
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
                                 Text("YOU", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -283,7 +292,7 @@ private fun LeaderboardRow(
                     }
                     Text(
                         text = "${entry.totalTrades} trades logged",
-                        color = TextMuted,
+                        color = colors.textMuted,
                         fontSize = 11.sp
                     )
                 }
@@ -296,7 +305,7 @@ private fun LeaderboardRow(
                         1 -> TrophyGold
                         2 -> SilverRank
                         3 -> BronzeRank
-                        else -> TextPrimary
+                        else -> colors.textPrimary
                     },
                     fontWeight = FontWeight.Black,
                     fontSize = 15.sp
@@ -304,7 +313,7 @@ private fun LeaderboardRow(
                 if (entry.winRate > 0) {
                     Text(
                         text = String.format(Locale.US, "%.0f%% Win Rate", entry.winRate),
-                        color = EmeraldWin,
+                        color = colors.emeraldWin,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -313,4 +322,3 @@ private fun LeaderboardRow(
         }
     }
 }
-

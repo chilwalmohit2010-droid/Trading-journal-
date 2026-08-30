@@ -58,18 +58,7 @@ import com.example.ui.components.DirectionBadge
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassTextField
 import com.example.ui.components.ResultBadge
-import com.example.ui.theme.CrimsonLoss
-import com.example.ui.theme.EmeraldWin
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekCard
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TrophyGold
+import com.example.ui.theme.LiquidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -85,9 +74,9 @@ fun JournalView(
     onEditTradeClick: (Trade) -> Unit,
     onDeleteTradeClick: (String) -> Unit
 ) {
+    val colors = LiquidTheme.colors
     var tradeToDeleteId by remember { mutableStateOf<String?>(null) }
 
-    // Filter and search computation
     val filteredTrades = trades.filter { trade ->
         val matchesFilter = when (selectedFilter) {
             TradeFilter.ALL -> true
@@ -105,70 +94,57 @@ fun JournalView(
         matchesFilter && matchesSearch
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("journal_view")
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Search Bar
             GlassTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                label = "Search Journal",
-                placeholder = "Search by pair (BTC), strategy or notes...",
+                label = "Search journal",
+                placeholder = "Search by symbol, setup, or notes...",
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = TextSecondary
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(18.dp)
                     )
                 },
-                testTag = "input_journal_search"
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onSearchChange("") }) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear",
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                testTag = "journal_search_input"
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Filter Chips Row
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(TradeFilter.values()) { filter ->
-                    val isSelected = filter == selectedFilter
-                    val label = when (filter) {
-                        TradeFilter.ALL -> "All Trades (${trades.size})"
-                        TradeFilter.WINS -> "Wins (${trades.count { it.result == TradeResult.WIN }})"
-                        TradeFilter.LOSSES -> "Losses (${trades.count { it.result == TradeResult.LOSS }})"
-                        TradeFilter.LONGS -> "Longs (${trades.count { it.direction == TradeDirection.LONG }})"
-                        TradeFilter.SHORTS -> "Shorts (${trades.count { it.direction == TradeDirection.SHORT }})"
-                    }
-
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) IndigoDark else Color(0x0DFFFFFF))
-                            .border(
-                                1.dp,
-                                if (isSelected) IndigoLight else SleekBorder,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .clickable { onFilterSelect(filter) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .testTag("filter_chip_${filter.name.lowercase()}")
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (isSelected) Color.White else TextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-                }
-            }
+            // Filter Chips
+            FilterChipsRow(
+                selectedFilter = selectedFilter,
+                onFilterSelect = onFilterSelect,
+                totalCount = trades.size,
+                winsCount = trades.count { it.result == TradeResult.WIN },
+                lossesCount = trades.count { it.result == TradeResult.LOSS }
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -177,81 +153,51 @@ fun JournalView(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 60.dp)
+                        .fillMaxWidth()
+                        .weight(1f)
                 ) {
-                    GlassCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        backgroundColor = SleekCard,
-                        shape = RoundedCornerShape(20.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
                     ) {
-                        Column(
+                        Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(if (colors.isDark) Color(0x1A6366F1) else Color(0x1A4F46E5))
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x1A6366F1))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ShowChart,
-                                    contentDescription = null,
-                                    tint = IndigoLight,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = if (searchQuery.isNotEmpty() || selectedFilter != TradeFilter.ALL)
-                                    "No matching trades found"
-                                else
-                                    "Your Journal is Empty",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                            Icon(
+                                imageVector = Icons.Default.ShowChart,
+                                contentDescription = null,
+                                tint = colors.indigoAccent,
+                                modifier = Modifier.size(28.dp)
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Log every trade with Entry, SL, TP, and P&L to build your GM Score.",
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                lineHeight = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Brush.horizontalGradient(listOf(IndigoDark, IndigoAccent)))
-                                    .clickable { onAddTradeClick() }
-                                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                                    .testTag("btn_empty_add_trade")
-                            ) {
-                                Text(
-                                    text = "+ LOG FIRST TRADE",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
                         }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (trades.isEmpty()) "No trades logged yet" else "No trades match filters",
+                            color = colors.textPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (trades.isEmpty()) "Tap the + button below to log your first trade." else "Try clearing your search query or filter.",
+                            color = colors.textMuted,
+                            fontSize = 13.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 72.dp)
-                        .testTag("trades_list")
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(bottom = 76.dp)
+                        .testTag("journal_trades_list")
                 ) {
                     items(filteredTrades, key = { it.id }) { trade ->
                         TradeItemCard(
@@ -269,8 +215,15 @@ fun JournalView(
     if (tradeToDeleteId != null) {
         AlertDialog(
             onDismissRequest = { tradeToDeleteId = null },
-            title = { Text("Delete Trade Entry", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove this trade? Your GM score will be recalculated.", color = TextSecondary) },
+            title = {
+                Text(text = "Delete Trade", color = colors.textPrimary, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete this trade? Your GM score and win rate will be automatically recalculated.",
+                    color = colors.textSecondary
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -278,16 +231,102 @@ fun JournalView(
                         tradeToDeleteId = null
                     }
                 ) {
-                    Text("DELETE", color = CrimsonLoss, fontWeight = FontWeight.Bold)
+                    Text("Delete", color = colors.crimsonLoss, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { tradeToDeleteId = null }) {
-                    Text("CANCEL", color = TextSecondary)
+                    Text("Cancel", color = colors.textSecondary)
                 }
             },
-            containerColor = SleekCardElevated,
-            shape = RoundedCornerShape(18.dp)
+            containerColor = colors.surface,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun FilterChipsRow(
+    selectedFilter: TradeFilter,
+    onFilterSelect: (TradeFilter) -> Unit,
+    totalCount: Int,
+    winsCount: Int,
+    lossesCount: Int
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        item {
+            FilterChipItem(
+                label = "All ($totalCount)",
+                isSelected = selectedFilter == TradeFilter.ALL,
+                onClick = { onFilterSelect(TradeFilter.ALL) },
+                testTag = "filter_all"
+            )
+        }
+        item {
+            FilterChipItem(
+                label = "Wins ($winsCount)",
+                isSelected = selectedFilter == TradeFilter.WINS,
+                onClick = { onFilterSelect(TradeFilter.WINS) },
+                testTag = "filter_wins"
+            )
+        }
+        item {
+            FilterChipItem(
+                label = "Losses ($lossesCount)",
+                isSelected = selectedFilter == TradeFilter.LOSSES,
+                onClick = { onFilterSelect(TradeFilter.LOSSES) },
+                testTag = "filter_losses"
+            )
+        }
+        item {
+            FilterChipItem(
+                label = "Longs",
+                isSelected = selectedFilter == TradeFilter.LONGS,
+                onClick = { onFilterSelect(TradeFilter.LONGS) },
+                testTag = "filter_longs"
+            )
+        }
+        item {
+            FilterChipItem(
+                label = "Shorts",
+                isSelected = selectedFilter == TradeFilter.SHORTS,
+                onClick = { onFilterSelect(TradeFilter.SHORTS) },
+                testTag = "filter_shorts"
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterChipItem(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    val colors = LiquidTheme.colors
+    val bgColor = if (isSelected) colors.indigoAccent else colors.card
+    val borderColor = if (isSelected) colors.indigoLight else colors.border
+    val textColor = if (isSelected) Color.White else colors.textSecondary
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .testTag(testTag)
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
@@ -298,6 +337,7 @@ private fun TradeItemCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.US) }
     val formattedDate = remember(trade.timestamp) { dateFormat.format(Date(trade.timestamp)) }
 
@@ -305,8 +345,6 @@ private fun TradeItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("trade_card_${trade.id}"),
-        backgroundColor = SleekCard,
-        borderColor = SleekBorder,
         shape = RoundedCornerShape(18.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -319,7 +357,7 @@ private fun TradeItemCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = trade.symbol,
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         fontWeight = FontWeight.Black,
                         fontSize = 17.sp
                     )
@@ -342,7 +380,7 @@ private fun TradeItemCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0x0DFFFFFF))
+                    .background(if (colors.isDark) Color(0x0DFFFFFF) else Color(0x0A0F172A))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -363,13 +401,13 @@ private fun TradeItemCard(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(IndigoDark.copy(alpha = 0.5f))
-                                .border(1.dp, IndigoLight.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                .background(colors.indigoDark.copy(alpha = 0.3f))
+                                .border(1.dp, colors.indigoLight.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = trade.strategy,
-                                color = IndigoLight,
+                                color = colors.indigoLight,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -379,7 +417,7 @@ private fun TradeItemCard(
                     if (trade.notes.isNotEmpty()) {
                         Text(
                             text = trade.notes,
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             fontSize = 11.sp,
                             maxLines = 1,
                             modifier = Modifier.weight(1f)
@@ -398,7 +436,7 @@ private fun TradeItemCard(
             ) {
                 Text(
                     text = formattedDate,
-                    color = TextMuted,
+                    color = colors.textMuted,
                     fontSize = 11.sp
                 )
 
@@ -410,7 +448,7 @@ private fun TradeItemCard(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit trade",
-                            tint = IndigoLight,
+                            tint = colors.indigoLight,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -424,7 +462,7 @@ private fun TradeItemCard(
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Delete trade",
-                            tint = CrimsonLoss,
+                            tint = colors.crimsonLoss,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -436,9 +474,9 @@ private fun TradeItemCard(
 
 @Composable
 private fun MetricItem(label: String, value: String) {
+    val colors = LiquidTheme.colors
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, color = TextMuted, fontSize = 10.sp)
-        Text(text = value, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+        Text(text = label, color = colors.textMuted, fontSize = 10.sp)
+        Text(text = value, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     }
 }
-

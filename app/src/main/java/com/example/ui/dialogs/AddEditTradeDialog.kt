@@ -46,19 +46,7 @@ import com.example.data.model.TradeResult
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassTextField
-import com.example.ui.theme.CrimsonLoss
-import com.example.ui.theme.CrimsonLossBg
-import com.example.ui.theme.EmeraldWin
-import com.example.ui.theme.EmeraldWinBg
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TrophyGold
+import com.example.ui.theme.LiquidTheme
 import java.util.Locale
 import kotlin.math.abs
 
@@ -70,6 +58,7 @@ fun AddEditTradeDialog(
     onDismiss: () -> Unit,
     onSave: (Trade) -> Unit
 ) {
+    val colors = LiquidTheme.colors
     val isEditing = trade != null
 
     var symbol by remember { mutableStateOf(trade?.symbol ?: "") }
@@ -82,7 +71,6 @@ fun AddEditTradeDialog(
     var strategy by remember { mutableStateOf(trade?.strategy ?: "") }
     var notes by remember { mutableStateOf(trade?.notes ?: "") }
 
-    // Live calculated Risk:Reward ratio
     val calculatedRR by remember {
         derivedStateOf {
             val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
@@ -107,36 +95,26 @@ fun AddEditTradeDialog(
     ) {
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            backgroundColor = SleekCardElevated,
-            borderColor = SleekBorder,
             shape = RoundedCornerShape(24.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp)
+                    .padding(22.dp)
             ) {
-                // Header
+                // Dialog Title Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = if (isEditing) "EDIT TRADE" else "LOG NEW TRADE",
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = "Record entry, targets, and outcome",
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
+                    Text(
+                        text = if (isEditing) "Edit Trade Entry" else "Record Trade",
+                        color = colors.textPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black
+                    )
 
                     IconButton(
                         onClick = onDismiss,
@@ -144,59 +122,57 @@ fun AddEditTradeDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = TextSecondary
+                            contentDescription = "Close dialog",
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                // Asset / Symbol
+                // Symbol / Instrument
                 GlassTextField(
                     value = symbol,
                     onValueChange = { symbol = it.uppercase() },
-                    label = "Asset / Pair Symbol",
-                    placeholder = "e.g. BTC/USDT, EUR/USD, NVDA, SPY",
-                    testTag = "input_trade_symbol"
+                    label = "Asset / Symbol",
+                    placeholder = "e.g. BTCUSDT, EURUSD, NVDA, NQ",
+                    testTag = "input_symbol"
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Direction Selector (LONG vs SHORT)
-                Text("Position Direction", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                // Direction: LONG vs SHORT
+                Text(
+                    text = "Trade Direction",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(42.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x0DFFFFFF))
-                        .border(1.dp, SleekBorder, RoundedCornerShape(12.dp))
+                        .background(if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A))
+                        .border(1.dp, colors.border, RoundedCornerShape(12.dp))
                         .padding(3.dp)
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (direction == TradeDirection.LONG) EmeraldWinBg else Color.Transparent
-                            )
-                            .border(
-                                1.dp,
-                                if (direction == TradeDirection.LONG) EmeraldWin else Color.Transparent,
-                                RoundedCornerShape(10.dp)
-                            )
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (direction == TradeDirection.LONG) colors.emeraldWin else Color.Transparent)
                             .clickable { direction = TradeDirection.LONG }
-                            .testTag("direction_long")
+                            .testTag("btn_select_long")
                     ) {
                         Text(
-                            "LONG ▲",
-                            color = if (direction == TradeDirection.LONG) EmeraldWin else TextSecondary,
+                            text = "LONG ▲",
+                            color = if (direction == TradeDirection.LONG) Color.White else colors.textSecondary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                     }
 
@@ -204,41 +180,104 @@ fun AddEditTradeDialog(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (direction == TradeDirection.SHORT) CrimsonLossBg else Color.Transparent
-                            )
-                            .border(
-                                1.dp,
-                                if (direction == TradeDirection.SHORT) CrimsonLoss else Color.Transparent,
-                                RoundedCornerShape(10.dp)
-                            )
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (direction == TradeDirection.SHORT) colors.crimsonLoss else Color.Transparent)
                             .clickable { direction = TradeDirection.SHORT }
-                            .testTag("direction_short")
+                            .testTag("btn_select_short")
                     ) {
                         Text(
-                            "SHORT ▼",
-                            color = if (direction == TradeDirection.SHORT) CrimsonLoss else TextSecondary,
+                            text = "SHORT ▼",
+                            color = if (direction == TradeDirection.SHORT) Color.White else colors.textSecondary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Price Inputs (Entry, SL, TP)
+                // Outcome: WIN vs LOSS vs BE
+                Text(
+                    text = "Trade Outcome",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A))
+                        .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                        .padding(3.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (result == TradeResult.WIN) colors.emeraldWin else Color.Transparent)
+                            .clickable { result = TradeResult.WIN }
+                            .testTag("btn_select_win")
+                    ) {
+                        Text(
+                            text = "WIN",
+                            color = if (result == TradeResult.WIN) Color.White else colors.textSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (result == TradeResult.LOSS) colors.crimsonLoss else Color.Transparent)
+                            .clickable { result = TradeResult.LOSS }
+                            .testTag("btn_select_loss")
+                    ) {
+                        Text(
+                            text = "LOSS",
+                            color = if (result == TradeResult.LOSS) Color.White else colors.textSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (result == TradeResult.BREAKEVEN) colors.textMuted else Color.Transparent)
+                            .clickable { result = TradeResult.BREAKEVEN }
+                            .testTag("btn_select_be")
+                    ) {
+                        Text(
+                            text = "B/E",
+                            color = if (result == TradeResult.BREAKEVEN) Color.White else colors.textSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Price Levels Grid
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     GlassTextField(
                         value = entryPriceStr,
                         onValueChange = { entryPriceStr = it },
                         label = "Entry Price",
                         placeholder = "0.00",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                         testTag = "input_entry_price"
                     )
@@ -248,92 +287,53 @@ fun AddEditTradeDialog(
                         onValueChange = { stopLossStr = it },
                         label = "Stop Loss",
                         placeholder = "0.00",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                         testTag = "input_stop_loss"
                     )
+                }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     GlassTextField(
                         value = takeProfitStr,
                         onValueChange = { takeProfitStr = it },
                         label = "Take Profit",
                         placeholder = "0.00",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                         testTag = "input_take_profit"
                     )
-                }
 
-                // Live R:R feedback badge
-                if (calculatedRR > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(IndigoDark.copy(alpha = 0.4f))
-                            .border(1.dp, IndigoLight.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Calculated R:R Display Pill
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            tint = IndigoLight,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = String.format(Locale.US, "Calculated R:R Ratio = 1 : %.2f", calculatedRR),
-                            color = IndigoLight,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Risk:Reward (Auto)",
+                            color = colors.textSecondary,
+                            fontSize = 11.sp
                         )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Result Selector (WIN / LOSS / BREAKEVEN)
-                Text("Trade Outcome", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(TradeResult.WIN, TradeResult.LOSS, TradeResult.BREAKEVEN).forEach { res ->
-                        val isSelected = result == res
-                        val color = when (res) {
-                            TradeResult.WIN -> EmeraldWin
-                            TradeResult.LOSS -> CrimsonLoss
-                            TradeResult.BREAKEVEN -> IndigoLight
-                            TradeResult.OPEN -> TrophyGold
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) color.copy(alpha = 0.2f) else Color(0x0DFFFFFF))
-                                .border(
-                                    1.dp,
-                                    if (isSelected) color else SleekBorder,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    result = res
-                                    if (res == TradeResult.BREAKEVEN && pnlStr.isBlank()) {
-                                        pnlStr = "0.0"
-                                    }
-                                }
-                                .testTag("result_${res.name.lowercase()}")
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A))
+                                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
                         ) {
                             Text(
-                                res.name,
-                                color = if (isSelected) color else TextSecondary,
+                                text = if (calculatedRR > 0) String.format(Locale.US, "1 : %.2f", calculatedRR) else "—",
+                                color = if (calculatedRR >= 2.0) colors.trophyGold else colors.textPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -346,7 +346,7 @@ fun AddEditTradeDialog(
                     value = pnlStr,
                     onValueChange = { pnlStr = it },
                     label = "Realized P&L ($)",
-                    placeholder = if (result == TradeResult.WIN) "+450.00" else "-150.00",
+                    placeholder = "e.g. 250.00 or -120.00",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     testTag = "input_pnl"
                 )
@@ -403,11 +403,10 @@ fun AddEditTradeDialog(
                         onSave(finalTrade)
                     },
                     isLoading = isLoading,
-                    accentGradient = listOf(IndigoDark, IndigoAccent),
+                    accentGradient = listOf(colors.indigoDark, colors.indigoAccent),
                     testTag = "btn_save_trade"
                 )
             }
         }
     }
 }
-

@@ -536,6 +536,7 @@ class TradingRepository {
             val entry = LeaderboardEntry(
                 uid = uid,
                 username = username,
+                displayName = username,
                 score = calculatedScore,
                 totalTrades = allTrades.size,
                 winRate = winRate,
@@ -547,6 +548,118 @@ class TradingRepository {
             FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.setValue(entry.toMap())
         } catch (e: Exception) {
             Log.w(TAG, "Could not update leaderboard score: ${e.message}")
+        }
+    }
+
+    suspend fun isUsernameAvailable(username: String, currentUid: String): Boolean {
+        val clean = username.trim()
+        if (clean.length < 3) return false
+        val firestore = FirebaseManager.firestore
+        if (firestore != null) {
+            try {
+                val query = firestore.collection("users")
+                    .whereEqualTo("username", clean)
+                    .get().await()
+                for (doc in query.documents) {
+                    if (doc.id != currentUid) {
+                        return false
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Username check notice: ${e.message}")
+            }
+        }
+        return true
+    }
+
+    suspend fun updateProfile(
+        uid: String,
+        username: String,
+        displayName: String,
+        bio: String,
+        photoURL: String
+    ): Result<UserProfile> {
+        return try {
+            val cleanUsername = username.trim()
+            val cleanDisplayName = displayName.trim().ifEmpty { cleanUsername }
+            val cleanBio = bio.trim()
+
+            // Update Auth User displayName
+            FirebaseManager.auth?.currentUser?.let { user ->
+                try {
+                    user.updateProfile(
+                        UserProfileChangeRequest.Builder()
+                            .setDisplayName(cleanDisplayName)
+                            .build()
+                    ).await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Update auth displayName notice: ${e.message}")
+                }
+            }
+
+            val updates = mapOf<String, Any?>(
+                "username" to cleanUsername,
+                "displayName" to cleanDisplayName,
+                "bio" to cleanBio,
+                "photoURL" to photoURL
+            )
+
+            // Update Firestore users/{uid}
+            FirebaseManager.firestore?.collection("users")?.document(uid)?.set(updates, SetOptions.merge())?.await()
+
+            // Update Realtime Database
+            FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(updates)?.await()
+
+            // Update Leaderboard entry if exists
+            val leaderboardUpdates = mapOf<String, Any?>(
+                "username" to cleanUsername,
+                "displayName" to cleanDisplayName,
+                "photoURL" to photoURL
+            )
+            FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(leaderboardUpdates, SetOptions.merge())
+            FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.updateChildren(leaderboardUpdates)
+
+            // Fetch updated profile
+            val currentDoc = FirebaseManager.firestore?.collection("users")?.document(uid)?.get()?.await()
+            val updatedProfile = if (currentDoc != null && currentDoc.exists()) {
+                UserProfile.fromMap(uid, currentDoc.data ?: emptyMap())
+            } else {
+                UserProfile(
+                    uid = uid,
+                    username = cleanUsername,
+                    displayName = cleanDisplayName,
+                    bio = cleanBio,
+                    photoURL = photoURL,
+                    email = FirebaseManager.auth?.currentUser?.email ?: ""
+                )
+            }
+
+            Result.success(updatedProfile)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update profile: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun uploadProfilePhoto(uid: String, imageBytes: ByteArray): Result<String> {
+        return try {
+            val storage = FirebaseManager.storage
+            if (storage != null) {
+                try {
+                    val ref = storage.reference.child("users").child(uid).child("profile.jpg")
+                    ref.putBytes(imageBytes).await()
+                    val downloadUrl = ref.downloadUrl.await().toString()
+                    return Result.success(downloadUrl)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Storage upload notice, falling back to base64: ${e.message}")
+                }
+            }
+            // Fallback: encode as compressed base64 URI
+            val base64 = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+            Result.success("data:image/jpeg;base64,$base64")
+        } catch (e: Exception) {
+            Log.e(TAG, "Image upload error: ${e.message}", e)
+            Result.failure(e)
         }
     }
 }

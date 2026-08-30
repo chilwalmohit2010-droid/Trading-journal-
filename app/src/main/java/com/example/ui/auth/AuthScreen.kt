@@ -50,19 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassTextField
-import com.example.ui.theme.BlueAccent
-import com.example.ui.theme.EmeraldAccent
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
-import com.example.ui.theme.SleekBg
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekCard
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TrophyGold
+import com.example.ui.theme.LiquidTheme
 
 @Composable
 fun AuthScreen(
@@ -70,6 +58,7 @@ fun AuthScreen(
     onSignUp: (username: String, email: String, pass: String) -> Unit,
     onLogin: (email: String, pass: String) -> Unit
 ) {
+    val colors = LiquidTheme.colors
     var isSignUpMode by remember { mutableStateOf(false) }
 
     var username by remember { mutableStateOf("") }
@@ -80,7 +69,7 @@ fun AuthScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SleekBg)
+            .background(colors.bg)
     ) {
         // Ambient background glow
         Box(
@@ -88,7 +77,10 @@ fun AuthScreen(
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0x1F6366F1), Color.Transparent),
+                        colors = listOf(
+                            colors.indigoAccent.copy(alpha = if (colors.isDark) 0.15f else 0.08f),
+                            Color.Transparent
+                        ),
                         radius = 800f
                     )
                 )
@@ -112,7 +104,7 @@ fun AuthScreen(
                     .clip(RoundedCornerShape(22.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(IndigoAccent, BlueAccent, EmeraldAccent)
+                            listOf(colors.indigoDark, colors.indigoAccent, colors.emeraldWin)
                         )
                     )
                     .border(1.5.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(22.dp))
@@ -129,15 +121,15 @@ fun AuthScreen(
 
             Text(
                 text = "TRADING DIARY GM",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 1.5.sp
             )
 
             Text(
-                text = "Track your edge • Score your discipline • Compete",
-                color = TextSecondary,
+                text = "Track your edge • Score discipline • Compete",
+                color = colors.textSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
             )
@@ -147,8 +139,6 @@ fun AuthScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("auth_card"),
-                backgroundColor = SleekCardElevated,
-                borderColor = SleekBorder,
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Column(
@@ -161,12 +151,12 @@ fun AuthScreen(
                             .fillMaxWidth()
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0x0DFFFFFF))
-                            .border(1.dp, SleekBorder, RoundedCornerShape(12.dp))
+                            .background(if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A))
+                            .border(1.dp, colors.border, RoundedCornerShape(12.dp))
                             .padding(3.dp)
                     ) {
-                        val loginBrush = if (!isSignUpMode) Brush.horizontalGradient(listOf(IndigoDark, IndigoAccent)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
-                        val signupBrush = if (isSignUpMode) Brush.horizontalGradient(listOf(IndigoDark, IndigoAccent)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                        val loginBrush = if (!isSignUpMode) Brush.horizontalGradient(listOf(colors.indigoDark, colors.indigoAccent)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                        val signupBrush = if (isSignUpMode) Brush.horizontalGradient(listOf(colors.indigoDark, colors.indigoAccent)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
 
                         Box(
                             contentAlignment = Alignment.Center,
@@ -182,7 +172,7 @@ fun AuthScreen(
                                 text = "LOG IN",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (!isSignUpMode) Color.White else TextSecondary
+                                color = if (!isSignUpMode) Color.White else colors.textSecondary
                             )
                         }
 
@@ -200,7 +190,7 @@ fun AuthScreen(
                                 text = "SIGN UP",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSignUpMode) Color.White else TextSecondary
+                                color = if (isSignUpMode) Color.White else colors.textSecondary
                             )
                         }
                     }
@@ -216,14 +206,14 @@ fun AuthScreen(
                         Column {
                             GlassTextField(
                                 value = username,
-                                onValueChange = { username = it },
+                                onValueChange = { username = it.lowercase().replace(" ", "_") },
                                 label = "Username / Trader Tag",
-                                placeholder = "e.g. SatoshiBull",
+                                placeholder = "e.g. satoshi_trader",
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = null,
-                                        tint = TextSecondary
+                                        tint = colors.textSecondary
                                     )
                                 },
                                 testTag = "input_username"
@@ -243,7 +233,7 @@ fun AuthScreen(
                             Icon(
                                 imageVector = Icons.Default.Email,
                                 contentDescription = null,
-                                tint = TextSecondary
+                                tint = colors.textSecondary
                             )
                         },
                         testTag = "input_email"
@@ -263,7 +253,7 @@ fun AuthScreen(
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = null,
-                                tint = TextSecondary
+                                tint = colors.textSecondary
                             )
                         },
                         trailingIcon = {
@@ -271,7 +261,7 @@ fun AuthScreen(
                                 Icon(
                                     imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                     contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                    tint = TextSecondary
+                                    tint = colors.textSecondary
                                 )
                             }
                         },
@@ -291,7 +281,7 @@ fun AuthScreen(
                             }
                         },
                         isLoading = isLoading,
-                        accentGradient = listOf(IndigoDark, IndigoAccent),
+                        accentGradient = listOf(colors.indigoDark, colors.indigoAccent),
                         testTag = "btn_submit_auth"
                     )
 
@@ -299,7 +289,7 @@ fun AuthScreen(
 
                     Text(
                         text = if (isSignUpMode) "Already have an account? Log In" else "New trader? Create account & claim 1,000 GM Pts",
-                        color = TextMuted,
+                        color = colors.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier
                             .clickable { isSignUpMode = !isSignUpMode }
@@ -312,4 +302,3 @@ fun AuthScreen(
         }
     }
 }
-

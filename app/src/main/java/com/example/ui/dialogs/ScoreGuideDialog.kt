@@ -38,23 +38,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
-import com.example.ui.theme.CrimsonLoss
-import com.example.ui.theme.EmeraldWin
-import com.example.ui.theme.IndigoAccent
-import com.example.ui.theme.IndigoDark
-import com.example.ui.theme.IndigoLight
-import com.example.ui.theme.SleekBorder
-import com.example.ui.theme.SleekCardElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TrophyGold
+import com.example.ui.theme.LiquidTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScoreGuideDialog(
     onDismiss: () -> Unit
 ) {
+    val colors = LiquidTheme.colors
     BasicAlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
@@ -64,8 +55,6 @@ fun ScoreGuideDialog(
     ) {
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            backgroundColor = SleekCardElevated,
-            borderColor = SleekBorder,
             shape = RoundedCornerShape(24.dp)
         ) {
             Column(
@@ -81,35 +70,19 @@ fun ScoreGuideDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x2BFFB800))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.EmojiEvents,
-                                contentDescription = null,
-                                tint = TrophyGold,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "GM SCORE ENGINE",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 16.sp,
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = "Discipline & Performance Formula",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.EmojiEvents,
+                            contentDescription = null,
+                            tint = colors.trophyGold,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "GM Scoring Formula",
+                            color = colors.textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
                     }
 
                     IconButton(
@@ -119,45 +92,60 @@ fun ScoreGuideDialog(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = TextSecondary
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                ScoreRuleItem(
-                    icon = Icons.Default.TrendingUp,
-                    iconColor = IndigoLight,
-                    title = "Base Score & Win/Loss Weight",
-                    description = "Every trader begins at 1,000 GM Points. Real winning trades award +45 pts base, while losses incur a -35 pts discipline deduction. Breakeven trades earn +5 pts for capital preservation."
+                Text(
+                    text = "The GM (Grandmaster) Trading Score measures execution consistency, discipline, risk management, and overall edge.",
+                    color = colors.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                ScoreRuleItem(
+                // Rules List
+                ScoringRuleItem(
                     icon = Icons.Default.EmojiEvents,
-                    iconColor = TrophyGold,
-                    title = "Risk/Reward (R:R) Multiplier",
-                    description = "Trades with a Risk-to-Reward ratio ≥ 2.0 earn +15 bonus pts. Excellent setups with R:R ≥ 3.0 award +30 bonus pts. Negative skew trades (< 0.5 R:R) are penalized."
+                    iconColor = colors.trophyGold,
+                    title = "Baseline Account Creation",
+                    points = "+1,000 PTS",
+                    description = "Every verified trader begins with a base capital of 1,000 GM discipline points."
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                ScoreRuleItem(
+                ScoringRuleItem(
                     icon = Icons.Default.TrendingUp,
-                    iconColor = EmeraldWin,
-                    title = "Win Rate Consistency & P&L",
-                    description = "Traders with a consistent Win Rate > 60% gain compounding consistency bonus points. Net positive P&L provides logarithmic alpha credit."
+                    iconColor = colors.emeraldWin,
+                    title = "Winning Execution",
+                    points = "+30 PTS / Win",
+                    description = "Rewarded for validated winning trades aligned with defined strategies."
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                ScoreRuleItem(
+                ScoringRuleItem(
                     icon = Icons.Default.Security,
-                    iconColor = CrimsonLoss,
-                    title = "Anti-Farming Protection",
-                    description = "Rapid burst micro-trades (< 10s intervals) suffer 75% score dampening. Zero-risk/invalid stop-loss entries do not generate score."
+                    iconColor = colors.indigoAccent,
+                    title = "Risk/Reward Multiplier",
+                    points = "+(RR × 5) PTS",
+                    description = "High R:R execution boosts points linearly (e.g. 1:3 R:R gives +15 extra PTS)."
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                ScoringRuleItem(
+                    icon = Icons.Default.TrendingUp,
+                    iconColor = colors.crimsonLoss,
+                    title = "Loss Management",
+                    points = "-15 PTS / Loss",
+                    description = "Controlled stop losses protect capital and keep drawdown penalties modest."
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -165,7 +153,8 @@ fun ScoreGuideDialog(
                 GlassButton(
                     text = "GOT IT",
                     onClick = onDismiss,
-                    accentGradient = listOf(IndigoDark, IndigoAccent)
+                    accentGradient = listOf(colors.indigoDark, colors.indigoAccent),
+                    testTag = "btn_close_score_guide"
                 )
             }
         }
@@ -173,25 +162,27 @@ fun ScoreGuideDialog(
 }
 
 @Composable
-private fun ScoreRuleItem(
+private fun ScoringRuleItem(
     icon: ImageVector,
     iconColor: Color,
     title: String,
+    points: String,
     description: String
 ) {
+    val colors = LiquidTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0x0DFFFFFF))
-            .border(1.dp, SleekBorder, RoundedCornerShape(14.dp))
+            .background(if (colors.isDark) Color(0x14FFFFFF) else Color(0x140F172A))
+            .border(1.dp, colors.borderSubtle, RoundedCornerShape(14.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.Top
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(32.dp)
+                .size(36.dp)
                 .clip(CircleShape)
                 .background(iconColor.copy(alpha = 0.15f))
         ) {
@@ -199,27 +190,40 @@ private fun ScoreRuleItem(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconColor,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(18.dp)
             )
         }
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        Column {
-            Text(
-                text = title,
-                color = TextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = points,
+                    color = iconColor,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 12.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
             Text(
                 text = description,
-                color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                color = colors.textSecondary,
+                fontSize = 11.sp,
+                lineHeight = 15.sp
             )
         }
     }
 }
-

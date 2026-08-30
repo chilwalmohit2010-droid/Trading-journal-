@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.storage.FirebaseStorage
 
 object FirebaseManager {
     private const val TAG = "FirebaseManager"
@@ -102,6 +103,14 @@ object FirebaseManager {
             FirebaseFirestore.getInstance()
         } catch (e: Exception) {
             Log.w(TAG, "FirebaseFirestore not ready: ${e.message}")
+            null
+        }
+
+    val storage: FirebaseStorage?
+        get() = try {
+            FirebaseStorage.getInstance()
+        } catch (e: Exception) {
+            Log.w(TAG, "FirebaseStorage not ready: ${e.message}")
             null
         }
 }

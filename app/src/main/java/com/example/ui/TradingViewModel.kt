@@ -2,6 +2,8 @@ package com.example.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.AppThemeMode
+import com.example.data.ThemePreferences
 import com.example.data.TradingRepository
 import com.example.data.model.LeaderboardEntry
 import com.example.data.model.Trade
@@ -27,7 +29,6 @@ enum class TradeFilter {
 }
 
 sealed class AuthUiState {
-    object Initial : AuthUiState()
     object Loading : AuthUiState()
     data class Authenticated(val user: UserProfile) : AuthUiState()
     data class Unauthenticated(val error: String? = null) : AuthUiState()
@@ -37,7 +38,8 @@ class TradingViewModel(
     private val repository: TradingRepository = TradingRepository()
 ) : ViewModel() {
 
-    private val _authUiState = MutableStateFlow<AuthUiState>(AuthUiState.Initial)
+    // Initial state is Loading to prevent any login-screen flash while checking persisted auth
+    private val _authUiState = MutableStateFlow<AuthUiState>(AuthUiState.Loading)
     val authUiState: StateFlow<AuthUiState> = _authUiState.asStateFlow()
 
     private val _currentUser = MutableStateFlow<UserProfile?>(null)
@@ -64,11 +66,16 @@ class TradingViewModel(
     private val _tradeToEdit = MutableStateFlow<Trade?>(null)
     val tradeToEdit: StateFlow<Trade?> = _tradeToEdit.asStateFlow()
 
+    private val _isEditProfileOpen = MutableStateFlow(false)
+    val isEditProfileOpen: StateFlow<Boolean> = _isEditProfileOpen.asStateFlow()
+
     private val _isActionLoading = MutableStateFlow(false)
     val isActionLoading: StateFlow<Boolean> = _isActionLoading.asStateFlow()
 
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
+
+    val themeMode: StateFlow<AppThemeMode> = ThemePreferences.themeMode
 
     private var tradesJob: Job? = null
     private var leaderboardJob: Job? = null
@@ -142,7 +149,6 @@ class TradingViewModel(
         if (userIndex != -1) {
             rank = userIndex + 1
         } else {
-            // Estimate based on score
             val betterScores = leaderboardEntries.count { it.score > currentScore }
             rank = betterScores + 1
         }
@@ -163,8 +169,17 @@ class TradingViewModel(
     }
 
     fun signUp(username: String, email: String, pass: String) {
-        if (username.isBlank() || email.isBlank() || pass.isBlank()) {
+        val cleanUsername = username.trim()
+        if (cleanUsername.isBlank() || email.isBlank() || pass.isBlank()) {
             _snackbarMessage.value = "Please fill in all fields"
+            return
+        }
+        if (cleanUsername.length < 3 || cleanUsername.length > 24) {
+            _snackbarMessage.value = "Username must be between 3 and 24 characters"
+            return
+        }
+        if (!cleanUsername.matches(Regex("^[a-zA-Z0-9_.]+$"))) {
+            _snackbarMessage.value = "Username can only contain letters, numbers, dots, and underscores"
             return
         }
         if (pass.length < 6) {
@@ -175,12 +190,12 @@ class TradingViewModel(
         viewModelScope.launch {
             _authUiState.value = AuthUiState.Loading
             _isActionLoading.value = true
-            val result = repository.signUp(username, email, pass)
+            val result = repository.signUp(cleanUsername, email, pass)
             _isActionLoading.value = false
             result.onSuccess { profile ->
                 _currentUser.value = profile
                 _authUiState.value = AuthUiState.Authenticated(profile)
-                _snackbarMessage.value = "Welcome to Trading Diary GM, ${profile.username}!"
+                _snackbarMessage.value = "Welcome to Trading Diary GM, @${profile.username}!"
             }.onFailure { err ->
                 _authUiState.value = AuthUiState.Unauthenticated(err.localizedMessage ?: "Sign up failed")
                 _snackbarMessage.value = err.localizedMessage ?: "Sign up failed. Please try again."
@@ -202,7 +217,7 @@ class TradingViewModel(
             result.onSuccess { profile ->
                 _currentUser.value = profile
                 _authUiState.value = AuthUiState.Authenticated(profile)
-                _snackbarMessage.value = "Welcome back, ${profile.username}!"
+                _snackbarMessage.value = "Welcome back, @${profile.username}!"
             }.onFailure { err ->
                 _authUiState.value = AuthUiState.Unauthenticated(err.localizedMessage ?: "Login failed")
                 _snackbarMessage.value = err.localizedMessage ?: "Invalid email or password"
@@ -216,6 +231,94 @@ class TradingViewModel(
         _authUiState.value = AuthUiState.Unauthenticated()
         _allTrades.value = emptyList()
         _snackbarMessage.value = "Logged out successfully"
+    }
+
+    fun setThemeMode(mode: AppThemeMode) {
+        ThemePreferences.setThemeMode(mode)
+    }
+
+    fun openEditProfile() {
+        _isEditProfileOpen.value = true
+    }
+
+    fun closeEditProfile() {
+        _isEditProfileOpen.value = false
+    }
+
+    fun updateProfile(
+        username: String,
+        displayName: String,
+        bio: String,
+        photoURL: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val user = _currentUser.value ?: run {
+            onResult(false, "User not authenticated")
+            return
+        }
+
+        val cleanUsername = username.trim()
+        if (cleanUsername.length < 3 || cleanUsername.length > 24) {
+            onResult(false, "Username must be between 3 and 24 characters")
+            return
+        }
+        if (!cleanUsername.matches(Regex("^[a-zA-Z0-9_.]+$"))) {
+            onResult(false, "Username can only contain letters, numbers, dots, and underscores")
+            return
+        }
+
+        viewModelScope.launch {
+            _isActionLoading.value = true
+
+            // Check if username changed and is available
+            if (!cleanUsername.equals(user.username, ignoreCase = true)) {
+                val available = repository.isUsernameAvailable(cleanUsername, user.uid)
+                if (!available) {
+                    _isActionLoading.value = false
+                    onResult(false, "Username @$cleanUsername is already taken. Please choose another.")
+                    return@launch
+                }
+            }
+
+            val result = repository.updateProfile(
+                uid = user.uid,
+                username = cleanUsername,
+                displayName = displayName.trim().ifEmpty { cleanUsername },
+                bio = bio.trim(),
+                photoURL = photoURL
+            )
+            _isActionLoading.value = false
+
+            result.onSuccess { updatedProfile ->
+                _currentUser.value = updatedProfile
+                _authUiState.value = AuthUiState.Authenticated(updatedProfile)
+                _isEditProfileOpen.value = false
+                _snackbarMessage.value = "Profile updated successfully!"
+                onResult(true, null)
+            }.onFailure { err ->
+                _snackbarMessage.value = "Failed to update profile: ${err.localizedMessage}"
+                onResult(false, err.localizedMessage)
+            }
+        }
+    }
+
+    fun uploadProfilePhoto(imageBytes: ByteArray, onResult: (String?) -> Unit) {
+        val user = _currentUser.value ?: run {
+            onResult(null)
+            return
+        }
+
+        viewModelScope.launch {
+            _isActionLoading.value = true
+            val result = repository.uploadProfilePhoto(user.uid, imageBytes)
+            _isActionLoading.value = false
+            result.onSuccess { url ->
+                onResult(url)
+            }.onFailure { err ->
+                _snackbarMessage.value = "Photo upload failed: ${err.localizedMessage}"
+                onResult(null)
+            }
+        }
     }
 
     fun setFilter(filter: TradeFilter) {
