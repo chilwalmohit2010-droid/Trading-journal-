@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,13 @@ fun AddEditTradeDialog(
     var result by remember { mutableStateOf(trade?.result ?: TradeResult.WIN) }
     var strategy by remember { mutableStateOf(trade?.strategy ?: "") }
     var notes by remember { mutableStateOf(trade?.notes ?: "") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isLoading) {
+        if (!isLoading) {
+            isSubmitting = false
+        }
+    }
 
     val calculatedRR by remember {
         derivedStateOf {
@@ -487,14 +495,18 @@ fun AddEditTradeDialog(
                 GlassButton(
                     text = if (isEditing) "UPDATE TRADE" else "RECORD TRADE",
                     onClick = {
+                        if (isSubmitting || isLoading) return@GlassButton
+                        isSubmitting = true
+
                         val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
                         val sl = stopLossStr.toDoubleOrNull() ?: 0.0
                         val tp = takeProfitStr.toDoubleOrNull() ?: 0.0
                         val pnl = pnlStr.toDoubleOrNull() ?: 0.0
                         val finalRR = if (calculatedRR > 0) calculatedRR else trade?.riskRewardRatio ?: 0.0
 
+                        val tradeId = if (!trade?.id.isNullOrBlank()) trade!!.id else java.util.UUID.randomUUID().toString()
                         val finalTrade = Trade(
-                            id = trade?.id ?: "",
+                            id = tradeId,
                             userId = trade?.userId ?: "",
                             symbol = symbol.trim().ifEmpty { "UNKNOWN" },
                             direction = direction,
@@ -510,7 +522,8 @@ fun AddEditTradeDialog(
                         )
                         onSave(finalTrade)
                     },
-                    isLoading = isLoading,
+                    enabled = !isSubmitting && !isLoading,
+                    isLoading = isSubmitting || isLoading,
                     accentGradient = listOf(colors.indigoDark, colors.indigoAccent),
                     testTag = "btn_save_trade"
                 )

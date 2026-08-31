@@ -14,7 +14,7 @@ class ExampleUnitTest {
     @Test
     fun testBaseScore_emptyTrades() {
         val score = ScoreCalculator.calculateScore(emptyList())
-        assertEquals(0L, score)
+        assertEquals(1000L, score)
     }
 
     @Test
@@ -33,8 +33,8 @@ class ExampleUnitTest {
             )
         )
         val score = ScoreCalculator.calculateScore(trades)
-        // 0 base + 45 win + 30 RR bonus + PnL alpha > 50
-        assertTrue(score >= 50L)
+        // 1000 base + 45 win + 30 RR bonus + PnL alpha > 1050
+        assertTrue(score >= 1050L)
     }
 
     @Test
@@ -57,66 +57,91 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun testLeaderboardDataConsistency_twoAccounts() {
-        // Account A: 2 trades
-        val accountATrades = listOf(
-            Trade(id = "t1", symbol = "BTC/USDT", direction = TradeDirection.LONG, entryPrice = 50000.0, stopLoss = 49000.0, takeProfit = 53000.0, riskRewardRatio = 3.0, result = TradeResult.WIN, pnl = 400.0),
-            Trade(id = "t2", symbol = "ETH/USDT", direction = TradeDirection.LONG, entryPrice = 3000.0, stopLoss = 2900.0, takeProfit = 3200.0, riskRewardRatio = 2.0, result = TradeResult.WIN, pnl = 200.0)
-        )
-        val accountAScore = ScoreCalculator.calculateScore(accountATrades)
-
-        // Account B: 0 trades
-        val accountBTrades = emptyList<Trade>()
-        val accountBScore = ScoreCalculator.calculateScore(accountBTrades)
-
-        assertEquals(0L, accountBScore)
-        assertTrue(accountAScore > 0L)
-
+    fun testLeaderboardDataConsistency_threeAccountsDebugScenario() {
+        // Account A: 3 trades, real score 1394
         val entryA = LeaderboardEntry(
             uid = "uid_a",
             username = "AccountA",
-            displayName = "Trader A",
-            score = accountAScore,
-            totalTrades = accountATrades.size
+            displayName = "Account A",
+            score = 1394L,
+            totalTrades = 3,
+            wins = 3,
+            losses = 0,
+            winRate = 100.0,
+            totalPnl = 800.0
         )
+
+        // Account B: 0 trades, score 1000
         val entryB = LeaderboardEntry(
             uid = "uid_b",
             username = "AccountB",
-            displayName = "Trader B",
-            score = accountBScore,
-            totalTrades = accountBTrades.size
+            displayName = "Account B",
+            score = 1000L,
+            totalTrades = 0,
+            wins = 0,
+            losses = 0,
+            winRate = 0.0,
+            totalPnl = 0.0
         )
 
-        val leaderboard = listOf(entryB, entryA).sortedWith(
+        val initialList = listOf(entryB, entryA).sortedWith(
             compareByDescending<LeaderboardEntry> { it.score }
                 .thenByDescending { it.totalTrades }
                 .thenByDescending { it.winRate }
+                .thenByDescending { it.updatedAt }
+                .thenBy { it.username.lowercase() }
         )
 
-        // Rank #1 must be Account A
-        assertEquals("uid_a", leaderboard[0].uid)
-        assertEquals(accountAScore, leaderboard[0].score)
-        assertEquals(2, leaderboard[0].totalTrades)
+        // 1. Account A must be #1 (1394 PTS, 3 trades), Account B must be #2 (1000 PTS, 0 trades)
+        assertEquals(2, initialList.size)
+        assertEquals("uid_a", initialList[0].uid)
+        assertEquals(1394L, initialList[0].score)
+        assertEquals(3, initialList[0].totalTrades)
+        assertEquals(1, initialList.indexOfFirst { it.uid == "uid_a" } + 1)
 
-        // Rank #2 must be Account B
-        assertEquals("uid_b", leaderboard[1].uid)
-        assertEquals(0L, leaderboard[1].score)
-        assertEquals(0, leaderboard[1].totalTrades)
+        assertEquals("uid_b", initialList[1].uid)
+        assertEquals(1000L, initialList[1].score)
+        assertEquals(0, initialList[1].totalTrades)
+        assertEquals(2, initialList.indexOfFirst { it.uid == "uid_b" } + 1)
 
-        // Add 3rd trade to Account A
-        val updatedATrades = accountATrades + Trade(id = "t3", symbol = "SOL/USDT", direction = TradeDirection.LONG, entryPrice = 150.0, stopLoss = 145.0, takeProfit = 165.0, riskRewardRatio = 3.0, result = TradeResult.WIN, pnl = 150.0)
-        val updatedAScore = ScoreCalculator.calculateScore(updatedATrades)
-
-        val updatedEntryA = entryA.copy(score = updatedAScore, totalTrades = updatedATrades.size)
-        val updatedLeaderboard = listOf(entryB, updatedEntryA).sortedWith(
+        // 2. If Account B has a higher score (e.g. 1500), Account B becomes #1
+        val updatedEntryB = entryB.copy(score = 1500L, totalTrades = 2)
+        val swappedList = listOf(entryA, updatedEntryB).sortedWith(
             compareByDescending<LeaderboardEntry> { it.score }
                 .thenByDescending { it.totalTrades }
                 .thenByDescending { it.winRate }
+                .thenByDescending { it.updatedAt }
+                .thenBy { it.username.lowercase() }
         )
+        assertEquals("uid_b", swappedList[0].uid)
+        assertEquals(1500L, swappedList[0].score)
+        assertEquals(1, swappedList.indexOfFirst { it.uid == "uid_b" } + 1)
 
-        assertEquals("uid_a", updatedLeaderboard[0].uid)
-        assertEquals(3, updatedLeaderboard[0].totalTrades)
-        assertEquals(updatedAScore, updatedLeaderboard[0].score)
+        // 3. Create a third account with 0 trades (score 1000)
+        val entryC = LeaderboardEntry(
+            uid = "uid_c",
+            username = "AccountC",
+            displayName = "Account C",
+            score = 1000L,
+            totalTrades = 0,
+            wins = 0,
+            losses = 0,
+            winRate = 0.0,
+            totalPnl = 0.0,
+            updatedAt = System.currentTimeMillis() - 10000 // slightly older or stable
+        )
+        val threeAccountList = listOf(entryA, entryB, entryC).sortedWith(
+            compareByDescending<LeaderboardEntry> { it.score }
+                .thenByDescending { it.totalTrades }
+                .thenByDescending { it.winRate }
+                .thenByDescending { it.updatedAt }
+                .thenBy { it.username.lowercase() }
+        )
+        assertEquals(3, threeAccountList.size)
+        assertEquals("uid_a", threeAccountList[0].uid)
+        assertEquals(1, threeAccountList.indexOfFirst { it.uid == "uid_a" } + 1)
+        assertEquals(2, threeAccountList.indexOfFirst { it.uid == "uid_b" } + 1)
+        assertEquals(3, threeAccountList.indexOfFirst { it.uid == "uid_c" } + 1)
     }
 
     @Test
@@ -193,12 +218,12 @@ class ExampleUnitTest {
             totalPnl = 850.0
         )
 
-        // Account B: 0 PTS, 0 trades
+        // Account B: 1000 PTS, 0 trades
         val entryB = LeaderboardEntry(
             uid = "uid_b",
             username = "trader_beta",
             displayName = "Trader Beta",
-            score = 0L,
+            score = 1000L,
             totalTrades = 0,
             wins = 0,
             losses = 0,
@@ -219,7 +244,7 @@ class ExampleUnitTest {
         assertEquals("uid_a", sortedList[0].uid)
         assertEquals(1450L, sortedList[0].score)
         assertEquals("uid_b", sortedList[1].uid)
-        assertEquals(0L, sortedList[1].score)
+        assertEquals(1000L, sortedList[1].score)
 
         // From Account A's perspective:
         val currentUidA = "uid_a"

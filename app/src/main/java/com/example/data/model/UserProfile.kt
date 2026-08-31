@@ -7,7 +7,7 @@ data class UserProfile(
     val bio: String = "",
     val photoURL: String = "",
     val email: String = "",
-    val score: Long = 0L,
+    val score: Long = 1000L,
     val totalTrades: Int = 0,
     val wins: Int = 0,
     val losses: Int = 0,
@@ -34,7 +34,7 @@ data class UserProfile(
     )
 
     companion object {
-        private fun parseLong(value: Any?, default: Long = 0L): Long {
+        private fun parseLong(value: Any?, default: Long = 1000L): Long {
             return when (value) {
                 is Number -> value.toLong()
                 is String -> value.toDoubleOrNull()?.toLong() ?: default
@@ -76,7 +76,7 @@ data class UserProfile(
                 ?: (map["avatarUrl"] as? String)
                 ?: ""
             val email = (map["email"] as? String) ?: ""
-            val rawScore = parseLong(map["score"] ?: map["currentScore"] ?: map["points"] ?: map["totalScore"], 0L)
+            val score = parseLong(map["score"] ?: map["currentScore"] ?: map["points"] ?: map["totalScore"], 1000L)
             val totalTrades = parseInt(map["totalTrades"] ?: map["total_trades"] ?: map["tradesCount"] ?: map["trades"], 0)
             val wins = parseInt(map["wins"] ?: map["totalWins"] ?: map["winCount"], 0)
             val losses = parseInt(map["losses"] ?: map["totalLosses"] ?: map["lossCount"], 0)
@@ -86,9 +86,6 @@ data class UserProfile(
             val hasCompletedProfile = (map["hasCompletedProfile"] as? Boolean)
                 ?: (map["has_completed_profile"] as? Boolean)
                 ?: (username.isNotBlank() && username != "Trader" && !username.startsWith("user_"))
-
-            // Clean legacy 1000 score if user actually has 0 trades
-            val score = if (totalTrades == 0 && wins == 0 && losses == 0 && pnl == 0.0 && rawScore == 1000L) 0L else rawScore
 
             return UserProfile(
                 uid = uid,
@@ -115,7 +112,7 @@ data class LeaderboardEntry(
     val username: String = "",
     val displayName: String = "",
     val photoURL: String = "",
-    val score: Long = 0L,
+    val score: Long = 1000L,
     val totalTrades: Int = 0,
     val wins: Int = 0,
     val losses: Int = 0,
@@ -138,7 +135,7 @@ data class LeaderboardEntry(
     )
 
     companion object {
-        private fun parseLong(value: Any?, default: Long = 0L): Long {
+        private fun parseLong(value: Any?, default: Long = 1000L): Long {
             return when (value) {
                 is Number -> value.toLong()
                 is String -> value.toDoubleOrNull()?.toLong() ?: default
@@ -176,7 +173,7 @@ data class LeaderboardEntry(
                 ?: (map["avatar"] as? String)
                 ?: (map["avatarUrl"] as? String)
                 ?: ""
-            val rawScore = parseLong(map["score"] ?: map["currentScore"] ?: map["points"] ?: map["totalScore"], 0L)
+            val score = parseLong(map["score"] ?: map["currentScore"] ?: map["points"] ?: map["totalScore"], 1000L)
             val totalTrades = parseInt(map["totalTrades"] ?: map["total_trades"] ?: map["tradesCount"] ?: map["trades"], 0)
             val wins = parseInt(map["wins"] ?: map["totalWins"] ?: map["winCount"], 0)
             val losses = parseInt(map["losses"] ?: map["totalLosses"] ?: map["lossCount"], 0)
@@ -184,9 +181,6 @@ data class LeaderboardEntry(
             val winRate = parseDouble(map["winRate"] ?: map["win_rate"], if (settled > 0) (wins.toDouble() / settled) * 100.0 else 0.0)
             val totalPnl = parseDouble(map["totalPnl"] ?: map["total_pnl"] ?: map["pnl"], 0.0)
             val updatedAt = parseLong(map["updatedAt"] ?: map["updated_at"] ?: map["createdAt"] ?: map["created_at"], System.currentTimeMillis())
-
-            // Clean legacy 1000 score if user actually has 0 trades
-            val score = if (totalTrades == 0 && wins == 0 && losses == 0 && totalPnl == 0.0 && rawScore == 1000L) 0L else rawScore
 
             return LeaderboardEntry(
                 uid = uid,

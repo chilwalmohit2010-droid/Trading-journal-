@@ -179,7 +179,7 @@ fun LeaderboardView(
                     .height(200.dp)
             ) {
                 Text(
-                    text = "No ranked traders yet. Add your trades to claim #1!",
+                    text = "No users found in global directory",
                     color = colors.textSecondary,
                     fontSize = 13.sp
                 )

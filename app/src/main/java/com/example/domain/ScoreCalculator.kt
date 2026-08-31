@@ -62,8 +62,8 @@ object ScoreCalculator {
     fun calculateBreakdown(trades: List<Trade>): ScoreBreakdown {
         if (trades.isEmpty()) {
             return ScoreBreakdown(
-                finalScore = 0L,
-                baseScore = 0L,
+                finalScore = BASE_SCORE,
+                baseScore = BASE_SCORE,
                 winLossPoints = 0,
                 rrDisciplineBonus = 0,
                 consistencyBonus = 0,
@@ -144,9 +144,9 @@ object ScoreCalculator {
             pnlContribution = -min(500L, (ln(1.0 + abs(totalRealizedPnl)) * 40.0).toLong())
         }
 
-        val baseScore = if (trades.isEmpty()) 0L else BASE_SCORE
+        val baseScore = BASE_SCORE
         val rawScore = baseScore + winLossPoints + rrBonus + consistencyBonus + pnlContribution
-        val finalScore = if (trades.isEmpty()) 0L else max(100L, rawScore)
+        val finalScore = max(MINIMUM_SCORE_FLOOR, rawScore)
 
         return ScoreBreakdown(
             finalScore = finalScore,

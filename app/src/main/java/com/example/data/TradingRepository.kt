@@ -52,17 +52,7 @@ class TradingRepository {
                 val uid = firebaseUser.uid
                 val fallbackUsername = firebaseUser.displayName ?: firebaseUser.email?.substringBefore("@") ?: "GM Trader"
 
-                // 1. Immediately fetch existing trades from users/{uid}/trades and sync real score & totalTrades to users/{uid}
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val trades = fetchAllUserTradesDirect(uid)
-                        syncUserTradesAndScore(uid, trades)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Initial auth trade sync notice: ${e.message}")
-                    }
-                }
-
-                // 2. Real-time Snapshot Listener on users/{uid}
+                // Real-time Snapshot Listener on users/{uid} (Read-only, no write-backs)
                 if (firestore != null) {
                     try {
                         firestoreUserListener = firestore.collection("users").document(uid)
@@ -159,7 +149,7 @@ class TradingRepository {
                 bio = "",
                 photoURL = "",
                 email = email.trim(),
-                score = 0L,
+                score = ScoreCalculator.BASE_SCORE,
                 totalTrades = 0,
                 wins = 0,
                 losses = 0,
@@ -181,7 +171,7 @@ class TradingRepository {
                 username = trimmedUsername,
                 displayName = trimmedUsername,
                 photoURL = "",
-                score = 0L,
+                score = ScoreCalculator.BASE_SCORE,
                 totalTrades = 0,
                 wins = 0,
                 losses = 0,
@@ -238,7 +228,7 @@ class TradingRepository {
                 username = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
                 displayName = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
                 email = user.email ?: "",
-                score = 0L,
+                score = ScoreCalculator.BASE_SCORE,
                 totalTrades = 0,
                 wins = 0,
                 losses = 0,
@@ -373,17 +363,16 @@ class TradingRepository {
             }
         }
 
-        // 2. Fetch directly to synchronize immediately
+        // 2. Fetch directly to synchronize read state immediately without write-back
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val directTrades = fetchAllUserTradesDirect(uid)
                 if (directTrades.isNotEmpty()) {
                     trySend(directTrades)
                     localDb?.tradeDao()?.insertTrades(directTrades.map { TradeEntity.fromTrade(it) })
-                    syncUserTradesAndScore(uid, directTrades)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Direct trade fetch/sync notice: ${e.message}")
+                Log.w(TAG, "Direct trade fetch notice: ${e.message}")
             }
         }
 
@@ -393,7 +382,7 @@ class TradingRepository {
         var firestoreListener: ListenerRegistration? = null
         var rtdbListener: ValueEventListener? = null
 
-        // 3. Attach Firestore Real-time listener for users/{uid}/trades (without index-requiring orderBy)
+        // 3. Attach Firestore Real-time listener for users/{uid}/trades (Read-only, no write-backs)
         if (firestore != null) {
             try {
                 firestoreListener = firestore.collection("users").document(uid).collection("trades")
@@ -413,13 +402,12 @@ class TradingRepository {
 
                             trySend(trades)
 
-                            // Cache in local Room DB and synchronize real stats & score to users/{uid}
+                            // Cache in local Room DB for offline reading only
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     localDb?.tradeDao()?.insertTrades(trades.map { TradeEntity.fromTrade(it) })
-                                    syncUserTradesAndScore(uid, trades)
                                 } catch (e: Exception) {
-                                    Log.w(TAG, "Room cache write/sync error: ${e.message}")
+                                    Log.w(TAG, "Room cache write error: ${e.message}")
                                 }
                             }
                         }
@@ -429,7 +417,7 @@ class TradingRepository {
             }
         }
 
-        // 4. Attach Realtime Database listener for users/{uid}/trades
+        // 4. Attach Realtime Database listener for users/{uid}/trades (Read-only, no write-backs)
         if (rtdb != null) {
             try {
                 val tradesRef = rtdb.reference.child("users").child(uid).child("trades")
@@ -451,13 +439,12 @@ class TradingRepository {
                             val sortedTrades = trades.sortedByDescending { it.timestamp }
                             trySend(sortedTrades)
 
-                            // Cache in local Room DB and synchronize real stats & score
+                            // Cache in local Room DB for offline reading only
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     localDb?.tradeDao()?.insertTrades(sortedTrades.map { TradeEntity.fromTrade(it) })
-                                    syncUserTradesAndScore(uid, sortedTrades)
                                 } catch (e: Exception) {
-                                    Log.w(TAG, "Room cache write/sync error: ${e.message}")
+                                    Log.w(TAG, "Room cache write error: ${e.message}")
                                 }
                             }
                         }
@@ -487,38 +474,41 @@ class TradingRepository {
 
     suspend fun saveTrade(uid: String, username: String, trade: Trade): Result<Trade> {
         return try {
-            val tradeId = if (trade.id.isEmpty()) UUID.randomUUID().toString() else trade.id
+            val tradeId = if (trade.id.isNotBlank()) trade.id else UUID.randomUUID().toString()
             val finalTrade = trade.copy(id = tradeId, userId = uid)
 
-            // Save to local Room DB first for instant responsiveness
+            val firestore = FirebaseManager.firestore
+            val rtdb = FirebaseManager.database
+
+            // 1. Write the trade to Firestore FIRST. If this fails, fail immediately without touching stats.
+            if (firestore != null) {
+                firestore.collection("users").document(uid)
+                    .collection("trades").document(tradeId)
+                    .set(finalTrade.toMap(), SetOptions.merge())
+                    .await()
+            }
+
+            // 2. Also write to Room DB and Realtime Database for consistency
             try {
                 localDb?.tradeDao()?.insertTrade(TradeEntity.fromTrade(finalTrade))
             } catch (e: Exception) {
-                Log.w(TAG, "Local Room insert error: ${e.message}")
+                Log.w(TAG, "Local Room insert notice: ${e.message}")
             }
 
-            // Save under "users/{uid}/trades" in Firestore
-            try {
-                FirebaseManager.firestore?.collection("users")?.document(uid)
-                    ?.collection("trades")?.document(tradeId)
-                    ?.set(finalTrade.toMap(), SetOptions.merge())
-                    ?.await()
-            } catch (e: Exception) {
-                Log.w(TAG, "Firestore trade save notice: ${e.message}")
+            if (rtdb != null) {
+                try {
+                    rtdb.reference.child("users").child(uid)
+                        .child("trades").child(tradeId)
+                        .setValue(finalTrade.toMap())
+                        .await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "RTDB trade save notice: ${e.message}")
+                }
             }
 
-            // Save under "users/{uid}/trades" in Realtime Database
-            try {
-                FirebaseManager.database?.reference?.child("users")?.child(uid)
-                    ?.child("trades")?.child(tradeId)
-                    ?.setValue(finalTrade.toMap())
-                    ?.await()
-            } catch (e: Exception) {
-                Log.w(TAG, "RTDB trade save notice: ${e.message}")
-            }
-
-            // Recalculate and update leaderboard score
-            updateLeaderboardScore(uid, username)
+            // 3. Only after successful Firestore write, recalculate user statistics exactly once
+            val allTrades = fetchAllUserTradesDirect(uid)
+            syncUserTradesAndScore(uid, allTrades)
 
             Result.success(finalTrade)
         } catch (e: Exception) {
@@ -529,35 +519,38 @@ class TradingRepository {
 
     suspend fun deleteTrade(uid: String, username: String, tradeId: String): Result<Unit> {
         return try {
-            // Delete from local Room cache
+            val firestore = FirebaseManager.firestore
+            val rtdb = FirebaseManager.database
+
+            // 1. Delete from Firestore first
+            if (firestore != null) {
+                firestore.collection("users").document(uid)
+                    .collection("trades").document(tradeId)
+                    .delete()
+                    .await()
+            }
+
+            // 2. Delete from local Room cache & Realtime Database
             try {
                 localDb?.tradeDao()?.deleteTradeById(tradeId)
             } catch (e: Exception) {
-                Log.w(TAG, "Local Room delete error: ${e.message}")
+                Log.w(TAG, "Local Room delete notice: ${e.message}")
             }
 
-            // Delete from Firestore
-            try {
-                FirebaseManager.firestore?.collection("users")?.document(uid)
-                    ?.collection("trades")?.document(tradeId)
-                    ?.delete()
-                    ?.await()
-            } catch (e: Exception) {
-                Log.w(TAG, "Firestore trade delete notice: ${e.message}")
+            if (rtdb != null) {
+                try {
+                    rtdb.reference.child("users").child(uid)
+                        .child("trades").child(tradeId)
+                        .removeValue()
+                        .await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "RTDB trade delete notice: ${e.message}")
+                }
             }
 
-            // Delete from Realtime Database
-            try {
-                FirebaseManager.database?.reference?.child("users")?.child(uid)
-                    ?.child("trades")?.child(tradeId)
-                    ?.removeValue()
-                    ?.await()
-            } catch (e: Exception) {
-                Log.w(TAG, "RTDB trade delete notice: ${e.message}")
-            }
-
-            // Recalculate leaderboard score
-            updateLeaderboardScore(uid, username)
+            // 3. Recalculate leaderboard score once
+            val allTrades = fetchAllUserTradesDirect(uid)
+            syncUserTradesAndScore(uid, allTrades)
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -592,12 +585,13 @@ class TradingRepository {
                         val username = if (entry.username.isNotBlank() && entry.username != "Trader") entry.username else existing.username
                         val displayName = if (entry.displayName.isNotBlank() && entry.displayName != "Trader") entry.displayName else existing.displayName
                         val photoURL = if (entry.photoURL.isNotBlank()) entry.photoURL else existing.photoURL
-                        val score = maxOf(entry.score, existing.score)
-                        val totalTrades = maxOf(entry.totalTrades, existing.totalTrades)
-                        val wins = maxOf(entry.wins, existing.wins)
-                        val losses = maxOf(entry.losses, existing.losses)
-                        val winRate = if (entry.winRate > 0) entry.winRate else existing.winRate
-                        val totalPnl = if (entry.totalPnl != 0.0) entry.totalPnl else existing.totalPnl
+                        val isNewer = entry.updatedAt >= existing.updatedAt
+                        val score = if (isNewer) entry.score else existing.score
+                        val totalTrades = if (isNewer) entry.totalTrades else existing.totalTrades
+                        val wins = if (isNewer) entry.wins else existing.wins
+                        val losses = if (isNewer) entry.losses else existing.losses
+                        val winRate = if (isNewer) entry.winRate else existing.winRate
+                        val totalPnl = if (isNewer) entry.totalPnl else existing.totalPnl
                         val updatedAt = maxOf(entry.updatedAt, existing.updatedAt)
 
                         LeaderboardEntry(
@@ -930,6 +924,29 @@ TRADE DOCUMENT COUNT: ${trades.size}
             syncUserTradesAndScore(uid, allTrades)
         } catch (e: Exception) {
             Log.w(TAG, "Could not update leaderboard score: ${e.message}")
+        }
+    }
+
+    suspend fun fetchUserProfile(uid: String): Result<UserProfile?> {
+        if (uid.isBlank()) return Result.success(null)
+        return try {
+            val snapshot = FirebaseManager.firestore?.collection("users")?.document(uid)?.get()?.await()
+            if (snapshot != null && snapshot.exists()) {
+                val profile = UserProfile.fromMap(uid, snapshot.data ?: emptyMap())
+                Result.success(profile)
+            } else {
+                val rtdbSnapshot = FirebaseManager.database?.reference?.child("users")?.child(uid)?.get()?.await()
+                if (rtdbSnapshot != null && rtdbSnapshot.exists()) {
+                    @Suppress("UNCHECKED_CAST")
+                    val map = rtdbSnapshot.value as? Map<String, Any?> ?: emptyMap()
+                    Result.success(UserProfile.fromMap(uid, map))
+                } else {
+                    Result.success(null)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fetch user profile error: ${e.message}")
+            Result.failure(e)
         }
     }
 
