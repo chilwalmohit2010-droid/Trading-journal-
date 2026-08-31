@@ -43,7 +43,7 @@ import kotlin.math.min
 object ScoreCalculator {
 
     const val BASE_SCORE = 1000L
-    const val MINIMUM_SCORE_FLOOR = 100L
+    const val MINIMUM_SCORE_FLOOR = 0L
 
     data class ScoreBreakdown(
         val finalScore: Long,
@@ -62,8 +62,8 @@ object ScoreCalculator {
     fun calculateBreakdown(trades: List<Trade>): ScoreBreakdown {
         if (trades.isEmpty()) {
             return ScoreBreakdown(
-                finalScore = BASE_SCORE,
-                baseScore = BASE_SCORE,
+                finalScore = 0L,
+                baseScore = 0L,
                 winLossPoints = 0,
                 rrDisciplineBonus = 0,
                 consistencyBonus = 0,
@@ -84,20 +84,10 @@ object ScoreCalculator {
         var lastTradeTime = 0L
 
         for (trade in sortedTrades) {
-            // Anti-farming check 1: Invalid price structures
-            val hasValidPrices = trade.entryPrice > 0 &&
-                    (trade.stopLoss > 0 || trade.takeProfit > 0) &&
-                    trade.stopLoss != trade.entryPrice
-
-            if (!hasValidPrices && trade.pnl == 0.0) {
-                // Ignore zero-effort placeholder spam
-                continue
-            }
-
             validTrades++
             totalRealizedPnl += trade.pnl
 
-            // Anti-farming check 2: Rapid successive trade burst dampening
+            // Anti-farming check: Rapid successive trade burst dampening
             val isBurstSpam = lastTradeTime > 0 && (trade.timestamp - lastTradeTime) < 10_000L
             val farmDampener = if (isBurstSpam) 0.25 else 1.0
             lastTradeTime = trade.timestamp
@@ -154,12 +144,13 @@ object ScoreCalculator {
             pnlContribution = -min(500L, (ln(1.0 + abs(totalRealizedPnl)) * 40.0).toLong())
         }
 
-        val rawScore = BASE_SCORE + winLossPoints + rrBonus + consistencyBonus + pnlContribution
-        val finalScore = max(MINIMUM_SCORE_FLOOR, rawScore)
+        val baseScore = if (trades.isEmpty()) 0L else BASE_SCORE
+        val rawScore = baseScore + winLossPoints + rrBonus + consistencyBonus + pnlContribution
+        val finalScore = if (trades.isEmpty()) 0L else max(100L, rawScore)
 
         return ScoreBreakdown(
             finalScore = finalScore,
-            baseScore = BASE_SCORE,
+            baseScore = baseScore,
             winLossPoints = winLossPoints,
             rrDisciplineBonus = rrBonus,
             consistencyBonus = consistencyBonus,

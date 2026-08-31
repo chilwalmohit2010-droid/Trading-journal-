@@ -51,7 +51,6 @@ fun LeaderboardView(
     onScoreGuideClick: () -> Unit
 ) {
     val colors = LiquidTheme.colors
-    val top10 = leaderboard.take(10)
     val currentUid = currentUser?.uid ?: ""
 
     Column(
@@ -144,7 +143,7 @@ fun LeaderboardView(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "GLOBAL TOP 10 LEADERBOARD",
+                    text = "GLOBAL LEADERBOARD (${leaderboard.size})",
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
@@ -161,7 +160,7 @@ fun LeaderboardView(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Live Sync",
+                    text = "Live Firestore Sync",
                     color = colors.emeraldWin,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -171,8 +170,8 @@ fun LeaderboardView(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Top 10 List or Empty State
-        if (top10.isEmpty()) {
+        // Leaderboard List or Empty State
+        if (leaderboard.isEmpty()) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -191,9 +190,9 @@ fun LeaderboardView(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = 72.dp)
-                    .testTag("top_10_list")
+                    .testTag("leaderboard_list")
             ) {
-                itemsIndexed(top10, key = { index, item -> item.uid.ifEmpty { "rank_$index" } }) { index, entry ->
+                itemsIndexed(leaderboard, key = { index, item -> item.uid.ifEmpty { "rank_$index" } }) { index, entry ->
                     val rank = index + 1
                     val isCurrentUser = entry.uid == currentUid
 
@@ -273,7 +272,7 @@ private fun LeaderboardRow(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "@${entry.username.ifEmpty { "Trader #${entry.uid.take(4)}" }}",
+                            text = if (entry.displayName.isNotBlank() && entry.displayName != entry.username) entry.displayName else "@${entry.username.ifEmpty { "Trader #${entry.uid.take(4)}" }}",
                             color = if (isCurrentUser) colors.indigoLight else colors.textPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
@@ -291,7 +290,7 @@ private fun LeaderboardRow(
                         }
                     }
                     Text(
-                        text = "${entry.totalTrades} trades logged",
+                        text = if (entry.displayName.isNotBlank() && entry.displayName != entry.username) "@${entry.username} • ${entry.totalTrades} trades" else "${entry.totalTrades} trades logged",
                         color = colors.textMuted,
                         fontSize = 11.sp
                     )

@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.storage.FirebaseStorage
 
 object FirebaseManager {
@@ -56,7 +57,7 @@ object FirebaseManager {
                 try {
                     val firestore = FirebaseFirestore.getInstance()
                     val settings = FirebaseFirestoreSettings.Builder()
-                        .setPersistenceEnabled(true)
+                        .setLocalCacheSettings(PersistentCacheSettings.newBuilder().build())
                         .build()
                     firestore.firestoreSettings = settings
                 } catch (e: Exception) {

@@ -11,6 +11,9 @@ interface TradeDao {
     @Query("SELECT * FROM cached_trades WHERE userId = :userId ORDER BY timestamp DESC")
     fun getTradesForUser(userId: String): Flow<List<TradeEntity>>
 
+    @Query("SELECT * FROM cached_trades WHERE userId = :userId ORDER BY timestamp DESC")
+    suspend fun getTradesForUserOnce(userId: String): List<TradeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrade(trade: TradeEntity)
 

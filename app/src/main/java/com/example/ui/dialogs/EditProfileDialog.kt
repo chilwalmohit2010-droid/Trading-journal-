@@ -119,14 +119,33 @@ fun EditProfileDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
     ) {
-        GlassCard(
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(24.dp)
+                .fillMaxWidth()
+                .padding(16.dp)
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.Center
         ) {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = { /* Consume clicks inside */ }
+                    ),
+                shape = RoundedCornerShape(24.dp)
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -277,4 +296,5 @@ fun EditProfileDialog(
             }
         }
     }
+}
 }

@@ -23,12 +23,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -168,7 +168,7 @@ fun JournalView(
                                 .background(if (colors.isDark) Color(0x1A6366F1) else Color(0x1A4F46E5))
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ShowChart,
+                                imageVector = Icons.AutoMirrored.Filled.ShowChart,
                                 contentDescription = null,
                                 tint = colors.indigoAccent,
                                 modifier = Modifier.size(28.dp)

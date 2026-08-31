@@ -54,11 +54,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AppThemeMode
+import com.example.data.model.Trade
 import com.example.data.model.TradingStats
 import com.example.data.model.UserProfile
 import com.example.ui.components.CurrencyPnlText
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
+import com.example.ui.components.ScoreProgressionCard
 import com.example.ui.components.UserAvatar
 import com.example.ui.theme.LiquidTheme
 import java.io.ByteArrayOutputStream
@@ -68,6 +70,7 @@ import java.util.Locale
 fun ProfileView(
     user: UserProfile,
     stats: TradingStats,
+    trades: List<Trade> = emptyList(),
     themeMode: AppThemeMode,
     onThemeChange: (AppThemeMode) -> Unit,
     onEditProfileClick: () -> Unit,
@@ -291,6 +294,14 @@ fun ProfileView(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Historical GM Score Timeline Line Chart
+        ScoreProgressionCard(
+            trades = trades,
+            currentScore = stats.currentScore
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 

@@ -143,14 +143,61 @@ class TradingViewModel(
 
         val currentScore = ScoreCalculator.calculateScore(trades)
 
-        // Determine user rank in leaderboard
-        var rank = 1
-        val userIndex = leaderboardEntries.indexOfFirst { it.uid == currentUid }
-        if (userIndex != -1) {
-            rank = userIndex + 1
+        // Ensure leaderboard entries list has current user's live values
+        val updatedLeaderboard = if (currentUid.isNotBlank()) {
+            val userEntry = leaderboardEntries.find { it.uid == currentUid }
+            val liveEntry = LeaderboardEntry(
+                uid = currentUid,
+                username = _currentUser.value?.username?.ifEmpty { null } ?: userEntry?.username ?: "Trader",
+                displayName = _currentUser.value?.displayName?.ifEmpty { null } ?: userEntry?.displayName ?: (_currentUser.value?.username ?: "Trader"),
+                photoURL = _currentUser.value?.photoURL ?: userEntry?.photoURL ?: "",
+                score = currentScore,
+                totalTrades = total,
+                wins = wins,
+                losses = losses,
+                winRate = winRate,
+                totalPnl = totalPnl,
+                updatedAt = System.currentTimeMillis()
+            )
+            val withoutCurrent = leaderboardEntries.filter { it.uid != currentUid }
+            (withoutCurrent + liveEntry).sortedWith(
+                compareByDescending<LeaderboardEntry> { it.score }
+                    .thenByDescending { it.totalTrades }
+                    .thenByDescending { it.winRate }
+                    .thenByDescending { it.updatedAt }
+                    .thenBy { it.username.lowercase() }
+            )
         } else {
-            val betterScores = leaderboardEntries.count { it.score > currentScore }
-            rank = betterScores + 1
+            leaderboardEntries.sortedWith(
+                compareByDescending<LeaderboardEntry> { it.score }
+                    .thenByDescending { it.totalTrades }
+                    .thenByDescending { it.winRate }
+                    .thenByDescending { it.updatedAt }
+                    .thenBy { it.username.lowercase() }
+            )
+        }
+
+        if (updatedLeaderboard != _leaderboard.value) {
+            _leaderboard.value = updatedLeaderboard
+        }
+
+        // Determine user rank in sorted leaderboard:
+        val userIndex = if (currentUid.isNotBlank()) {
+            updatedLeaderboard.indexOfFirst { it.uid == currentUid }
+        } else -1
+        val rank = if (userIndex >= 0) userIndex + 1 else 1
+
+        // Keep _currentUser synchronized with real stats
+        _currentUser.value?.let { current ->
+            if (current.uid == currentUid && (current.score != currentScore || current.totalTrades != total)) {
+                _currentUser.value = current.copy(
+                    score = currentScore,
+                    totalTrades = total,
+                    wins = wins,
+                    losses = losses,
+                    pnl = totalPnl
+                )
+            }
         }
 
         _stats.value = TradingStats(
@@ -164,7 +211,7 @@ class TradingViewModel(
             profitFactor = profitFactor,
             currentScore = currentScore,
             rank = rank,
-            totalTradersCount = maxOf(1, leaderboardEntries.size)
+            totalTradersCount = maxOf(1, updatedLeaderboard.size)
         )
     }
 
@@ -195,7 +242,8 @@ class TradingViewModel(
             result.onSuccess { profile ->
                 _currentUser.value = profile
                 _authUiState.value = AuthUiState.Authenticated(profile)
-                _snackbarMessage.value = "Welcome to Trading Diary GM, @${profile.username}!"
+                _isEditProfileOpen.value = true
+                _snackbarMessage.value = "Account created! Complete your profile setup below."
             }.onFailure { err ->
                 _authUiState.value = AuthUiState.Unauthenticated(err.localizedMessage ?: "Sign up failed")
                 _snackbarMessage.value = err.localizedMessage ?: "Sign up failed. Please try again."
@@ -355,10 +403,16 @@ class TradingViewModel(
             _isActionLoading.value = true
             val result = repository.saveTrade(user.uid, user.username, trade)
             _isActionLoading.value = false
-            result.onSuccess {
+            result.onSuccess { savedTrade ->
                 _isAddEditTradeOpen.value = false
                 _tradeToEdit.value = null
                 _snackbarMessage.value = if (trade.id.isEmpty()) "Trade recorded & score updated!" else "Trade updated successfully!"
+                
+                // Immediately refresh trades and stats
+                val currentList = _allTrades.value.filter { it.id != savedTrade.id }
+                val updatedTrades = (listOf(savedTrade) + currentList).sortedByDescending { it.timestamp }
+                _allTrades.value = updatedTrades
+                recomputeStats(updatedTrades, _leaderboard.value, user.uid)
             }.onFailure { err ->
                 _snackbarMessage.value = "Failed to save trade: ${err.localizedMessage}"
             }
@@ -373,6 +427,9 @@ class TradingViewModel(
             _isActionLoading.value = false
             result.onSuccess {
                 _snackbarMessage.value = "Trade deleted and score recalculated"
+                val updatedTrades = _allTrades.value.filter { it.id != tradeId }
+                _allTrades.value = updatedTrades
+                recomputeStats(updatedTrades, _leaderboard.value, user.uid)
             }.onFailure { err ->
                 _snackbarMessage.value = "Could not delete trade: ${err.localizedMessage}"
             }

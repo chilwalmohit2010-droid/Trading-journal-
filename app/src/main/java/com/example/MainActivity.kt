@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -80,23 +80,30 @@ fun TradingDiaryApp(
     val isActionLoading by viewModel.isActionLoading.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
 
+    // Key auth transitions strictly on top-level auth stage to prevent duplicate Dashboard instances and ghosting on data updates
+    val authStage = when (authState) {
+        is AuthUiState.Loading -> "LOADING"
+        is AuthUiState.Authenticated -> "AUTHENTICATED"
+        is AuthUiState.Unauthenticated -> "UNAUTHENTICATED"
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.bg)
     ) {
         AnimatedContent(
-            targetState = authState,
+            targetState = authStage,
             transitionSpec = {
-                fadeIn(animationSpec = tween(300)) togetherWith
-                        fadeOut(animationSpec = tween(250))
+                fadeIn(animationSpec = tween(220)) togetherWith
+                        fadeOut(animationSpec = tween(180))
             },
             label = "app_auth_nav_animation"
-        ) { state ->
-            when (state) {
-                is AuthUiState.Authenticated -> {
+        ) { stage ->
+            when (stage) {
+                "AUTHENTICATED" -> {
                     DashboardScreen(
-                        currentUser = state.user,
+                        currentUser = currentUser,
                         trades = allTrades,
                         stats = stats,
                         leaderboard = leaderboard,
@@ -124,7 +131,7 @@ fun TradingDiaryApp(
                         onDismissSnackbar = viewModel::clearSnackbar
                     )
                 }
-                is AuthUiState.Loading -> {
+                "LOADING" -> {
                     // Splash Screen to prevent flash of login screen while checking session
                     Box(
                         modifier = Modifier
@@ -149,7 +156,7 @@ fun TradingDiaryApp(
                                     .border(1.5.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ShowChart,
+                                    imageVector = Icons.AutoMirrored.Filled.ShowChart,
                                     contentDescription = "Logo",
                                     tint = Color.White,
                                     modifier = Modifier.size(38.dp)

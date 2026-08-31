@@ -17,16 +17,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.BasicAlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,27 +38,47 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.LiquidTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScoreGuideDialog(
     onDismiss: () -> Unit
 ) {
     val colors = LiquidTheme.colors
-    BasicAlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .testTag("dialog_score_guide")
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
     ) {
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.Center
         ) {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { /* Consume clicks inside */ }
+                    )
+                    .testTag("dialog_score_guide"),
+                shape = RoundedCornerShape(24.dp)
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,15 +135,15 @@ fun ScoreGuideDialog(
                 ScoringRuleItem(
                     icon = Icons.Default.EmojiEvents,
                     iconColor = colors.trophyGold,
-                    title = "Baseline Account Creation",
-                    points = "+1,000 PTS",
-                    description = "Every verified trader begins with a base capital of 1,000 GM discipline points."
+                    title = "Profile & Account Baseline",
+                    points = "0 PTS Base",
+                    description = "Every verified trader is ranked on the global leaderboard from day 1, building points as trades are logged."
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
                 ScoringRuleItem(
-                    icon = Icons.Default.TrendingUp,
+                    icon = Icons.AutoMirrored.Filled.TrendingUp,
                     iconColor = colors.emeraldWin,
                     title = "Winning Execution",
                     points = "+30 PTS / Win",
@@ -141,7 +163,7 @@ fun ScoreGuideDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 ScoringRuleItem(
-                    icon = Icons.Default.TrendingUp,
+                    icon = Icons.AutoMirrored.Filled.TrendingDown,
                     iconColor = colors.crimsonLoss,
                     title = "Loss Management",
                     points = "-15 PTS / Loss",
@@ -159,6 +181,7 @@ fun ScoreGuideDialog(
             }
         }
     }
+}
 }
 
 @Composable

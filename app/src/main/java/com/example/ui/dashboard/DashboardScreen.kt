@@ -1,10 +1,7 @@
 package com.example.ui.dashboard
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,12 +25,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
@@ -67,6 +65,7 @@ import com.example.ui.components.DirectionBadge
 import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ResultBadge
+import com.example.ui.components.ScoreProgressionCard
 import com.example.ui.components.UserAvatar
 import com.example.ui.dialogs.AddEditTradeDialog
 import com.example.ui.dialogs.EditProfileDialog
@@ -129,6 +128,7 @@ fun DashboardScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = colors.bg,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
         Box(
@@ -173,17 +173,16 @@ fun DashboardScreen(
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    AnimatedContent(
+                    Crossfade(
                         targetState = selectedTab,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(220)) togetherWith
-                                    fadeOut(animationSpec = tween(180))
-                        },
-                        label = "tab_content_animation"
+                        animationSpec = tween(180),
+                        label = "tab_crossfade",
+                        modifier = Modifier.fillMaxSize()
                     ) { tab ->
                         when (tab) {
                             DashboardTab.OVERVIEW -> OverviewTabContent(
                                 stats = stats,
+                                allTrades = trades,
                                 recentTrades = trades.take(5),
                                 onAddTradeClick = onOpenAddTrade,
                                 onViewAllJournal = { selectedTab = DashboardTab.JOURNAL },
@@ -212,6 +211,7 @@ fun DashboardScreen(
                                 ProfileView(
                                     user = user,
                                     stats = stats,
+                                    trades = trades,
                                     themeMode = themeMode,
                                     onThemeChange = onThemeChange,
                                     onEditProfileClick = onOpenEditProfile,
@@ -361,6 +361,7 @@ private fun TopTradingHeader(
 @Composable
 private fun OverviewTabContent(
     stats: TradingStats,
+    allTrades: List<Trade>,
     recentTrades: List<Trade>,
     onAddTradeClick: () -> Unit,
     onViewAllJournal: () -> Unit,
@@ -533,7 +534,7 @@ private fun OverviewTabContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.TrendingUp,
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                         contentDescription = null,
                         tint = if (stats.totalPnl >= 0) colors.emeraldWin else colors.crimsonLoss,
                         modifier = Modifier.size(24.dp)
@@ -541,6 +542,15 @@ private fun OverviewTabContent(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Score Progression Line Chart (Over Time based on Firestore trades)
+        ScoreProgressionCard(
+            trades = allTrades,
+            currentScore = stats.currentScore,
+            onScoreGuideClick = onScoreGuideClick
+        )
 
         Spacer(modifier = Modifier.height(18.dp))
 
@@ -689,11 +699,30 @@ private fun SleekBottomNav(
     onFabClick: () -> Unit
 ) {
     val colors = LiquidTheme.colors
+    var lastClickTime by remember { mutableStateOf(0L) }
+
+    fun safeTabClick(tab: DashboardTab) {
+        val now = System.currentTimeMillis()
+        if (now - lastClickTime > 250L) {
+            lastClickTime = now
+            onTabSelected(tab)
+        }
+    }
+
+    fun safeFabClick() {
+        val now = System.currentTimeMillis()
+        if (now - lastClickTime > 300L) {
+            lastClickTime = now
+            onFabClick()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .height(78.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         // Frosted Glass Bar with exactly 4 tabs + centered elevated slot
@@ -701,6 +730,7 @@ private fun SleekBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
+                .align(Alignment.BottomCenter)
                 .shadow(
                     elevation = if (colors.isDark) 12.dp else 6.dp,
                     shape = RoundedCornerShape(24.dp),
@@ -733,7 +763,7 @@ private fun SleekBottomNav(
                     label = "Overview",
                     icon = Icons.Default.AutoGraph,
                     isSelected = selectedTab == DashboardTab.OVERVIEW,
-                    onClick = { onTabSelected(DashboardTab.OVERVIEW) },
+                    onClick = { safeTabClick(DashboardTab.OVERVIEW) },
                     testTag = "nav_overview",
                     modifier = Modifier.weight(1f)
                 )
@@ -743,7 +773,7 @@ private fun SleekBottomNav(
                     label = "Journal",
                     icon = Icons.Default.Book,
                     isSelected = selectedTab == DashboardTab.JOURNAL,
-                    onClick = { onTabSelected(DashboardTab.JOURNAL) },
+                    onClick = { safeTabClick(DashboardTab.JOURNAL) },
                     testTag = "nav_journal",
                     modifier = Modifier.weight(1f)
                 )
@@ -756,7 +786,7 @@ private fun SleekBottomNav(
                     label = "Rank",
                     icon = Icons.Default.EmojiEvents,
                     isSelected = selectedTab == DashboardTab.LEADERBOARD,
-                    onClick = { onTabSelected(DashboardTab.LEADERBOARD) },
+                    onClick = { safeTabClick(DashboardTab.LEADERBOARD) },
                     testTag = "nav_leaderboard",
                     modifier = Modifier.weight(1f)
                 )
@@ -766,7 +796,7 @@ private fun SleekBottomNav(
                     label = "Profile",
                     icon = Icons.Default.Person,
                     isSelected = selectedTab == DashboardTab.PROFILE,
-                    onClick = { onTabSelected(DashboardTab.PROFILE) },
+                    onClick = { safeTabClick(DashboardTab.PROFILE) },
                     testTag = "nav_profile",
                     modifier = Modifier.weight(1f)
                 )
@@ -776,7 +806,7 @@ private fun SleekBottomNav(
         // Diamond Center Floating Action Button
         Box(
             modifier = Modifier
-                .offset(y = (-14).dp)
+                .align(Alignment.TopCenter)
                 .size(54.dp)
                 .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = colors.indigoAccent)
                 .clip(RoundedCornerShape(18.dp))
@@ -786,7 +816,7 @@ private fun SleekBottomNav(
                     )
                 )
                 .border(2.5.dp, colors.bg, RoundedCornerShape(18.dp))
-                .clickable(onClick = onFabClick)
+                .clickable(onClick = { safeFabClick() })
                 .testTag("fab_add_trade"),
             contentAlignment = Alignment.Center
         ) {

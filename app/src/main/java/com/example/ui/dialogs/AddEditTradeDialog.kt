@@ -20,8 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.BasicAlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -40,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.Trade
 import com.example.data.model.TradeDirection
 import com.example.data.model.TradeResult
@@ -47,10 +48,12 @@ import com.example.ui.components.GlassButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassTextField
 import com.example.ui.theme.LiquidTheme
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import java.util.Locale
 import kotlin.math.abs
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddEditTradeDialog(
     trade: Trade?,
@@ -86,17 +89,36 @@ fun AddEditTradeDialog(
         }
     }
 
-    BasicAlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .testTag("dialog_add_edit_trade")
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
     ) {
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.Center
         ) {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { /* Consume touch events inside dialog */ }
+                    )
+                    .testTag("dialog_add_edit_trade"),
+                shape = RoundedCornerShape(24.dp)
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -353,14 +375,100 @@ fun AddEditTradeDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Strategy Tag
-                GlassTextField(
-                    value = strategy,
-                    onValueChange = { strategy = it },
-                    label = "Setup / Strategy Tag",
-                    placeholder = "e.g. Liquidity Sweep, Fair Value Gap, Breakout",
-                    testTag = "input_strategy"
+                // Strategy Selection Chips (Requirement 8)
+                Text(
+                    text = "Trading Strategy / Setup",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val presetStrategies = remember {
+                    listOf(
+                        "Breakout",
+                        "Retest",
+                        "Trend Following",
+                        "Support & Resistance",
+                        "Supply & Demand",
+                        "Price Action",
+                        "Pullback",
+                        "Reversal",
+                        "Range Trading",
+                        "Liquidity Sweep",
+                        "Fair Value Gap (FVG)",
+                        "Order Block",
+                        "Smart Money (SMC)",
+                        "ICT",
+                        "VWAP Bounce",
+                        "EMA Crossover",
+                        "RSI Divergence",
+                        "Scalping",
+                        "Swing Trading",
+                        "Other"
+                    )
+                }
+
+                var isCustomStrategy by remember {
+                    mutableStateOf(strategy.isNotEmpty() && !presetStrategies.filter { it != "Other" }.contains(strategy))
+                }
+
+                androidx.compose.foundation.layout.FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presetStrategies.forEach { preset ->
+                        val isSelected = if (preset == "Other") {
+                            isCustomStrategy
+                        } else {
+                            !isCustomStrategy && strategy.equals(preset, ignoreCase = true)
+                        }
+
+                        val chipBg = if (isSelected) colors.indigoAccent else (if (colors.isDark) Color(0x14FFFFFF) else Color(0x0F0F172A))
+                        val chipBorder = if (isSelected) colors.indigoAccent else colors.border
+                        val chipTextColor = if (isSelected) Color.White else colors.textPrimary
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (preset == "Other") {
+                                        isCustomStrategy = true
+                                        if (presetStrategies.contains(strategy)) {
+                                            strategy = ""
+                                        }
+                                    } else {
+                                        isCustomStrategy = false
+                                        strategy = preset
+                                    }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                                .testTag("strategy_chip_${preset.lowercase().replace(" ", "_")}")
+                        ) {
+                            Text(
+                                text = preset,
+                                color = chipTextColor,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                if (isCustomStrategy) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GlassTextField(
+                        value = strategy,
+                        onValueChange = { strategy = it },
+                        label = "Custom Strategy Name",
+                        placeholder = "e.g. Fib Golden Pocket, Morning Star",
+                        testTag = "input_custom_strategy"
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -409,4 +517,5 @@ fun AddEditTradeDialog(
             }
         }
     }
+}
 }

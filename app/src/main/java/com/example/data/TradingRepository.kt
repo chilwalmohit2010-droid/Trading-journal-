@@ -39,51 +39,84 @@ class TradingRepository {
             return@callbackFlow
         }
 
+        var firestoreUserListener: ListenerRegistration? = null
+
         val authStateListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { firebaseAuth ->
             val firebaseUser = firebaseAuth.currentUser
+            firestoreUserListener?.remove()
+            firestoreUserListener = null
+
             if (firebaseUser != null) {
-                // Fetch profile document
                 val firestore = FirebaseManager.firestore
                 val rtdb = FirebaseManager.database
                 val uid = firebaseUser.uid
                 val fallbackUsername = firebaseUser.displayName ?: firebaseUser.email?.substringBefore("@") ?: "GM Trader"
 
+                // 1. Immediately fetch existing trades from users/{uid}/trades and sync real score & totalTrades to users/{uid}
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val trades = fetchAllUserTradesDirect(uid)
+                        syncUserTradesAndScore(uid, trades)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Initial auth trade sync notice: ${e.message}")
+                    }
+                }
+
+                // 2. Real-time Snapshot Listener on users/{uid}
                 if (firestore != null) {
-                    firestore.collection("users").document(uid)
-                        .get()
-                        .addOnSuccessListener { snapshot ->
-                            if (snapshot != null && snapshot.exists()) {
-                                val profile = UserProfile.fromMap(uid, snapshot.data ?: emptyMap())
-                                trySend(profile)
-                            } else {
-                                // Try Realtime DB if firestore doc not found
-                                if (rtdb != null) {
-                                    rtdb.reference.child("users").child(uid).get()
-                                        .addOnSuccessListener { rtdbSnapshot ->
-                                            if (rtdbSnapshot.exists()) {
-                                                @Suppress("UNCHECKED_CAST")
-                                                val map = rtdbSnapshot.value as? Map<String, Any?> ?: emptyMap()
-                                                trySend(UserProfile.fromMap(uid, map))
-                                            } else {
-                                                trySend(UserProfile(uid = uid, username = fallbackUsername, email = firebaseUser.email ?: ""))
-                                            }
-                                        }
-                                        .addOnFailureListener {
-                                            trySend(UserProfile(uid = uid, username = fallbackUsername, email = firebaseUser.email ?: ""))
-                                        }
+                    try {
+                        firestoreUserListener = firestore.collection("users").document(uid)
+                            .addSnapshotListener { snapshot, error ->
+                                if (error != null) {
+                                    Log.w(TAG, "Firestore user listener error: ${error.message}")
+                                    return@addSnapshotListener
+                                }
+                                if (snapshot != null && snapshot.exists()) {
+                                    val profile = UserProfile.fromMap(uid, snapshot.data ?: emptyMap())
+                                    trySend(profile)
                                 } else {
-                                    trySend(UserProfile(uid = uid, username = fallbackUsername, email = firebaseUser.email ?: ""))
+                                    // If doc does not exist yet in Firestore, try RTDB or fallback
+                                    if (rtdb != null) {
+                                        rtdb.reference.child("users").child(uid).get()
+                                            .addOnSuccessListener { rtdbSnapshot ->
+                                                if (rtdbSnapshot.exists()) {
+                                                    @Suppress("UNCHECKED_CAST")
+                                                    val map = rtdbSnapshot.value as? Map<String, Any?> ?: emptyMap()
+                                                    val profile = UserProfile.fromMap(uid, map)
+                                                    trySend(profile)
+                                                } else {
+                                                    val fallbackProfile = UserProfile(
+                                                        uid = uid,
+                                                        username = fallbackUsername,
+                                                        displayName = fallbackUsername,
+                                                        email = firebaseUser.email ?: "",
+                                                        hasCompletedProfile = false
+                                                    )
+                                                    trySend(fallbackProfile)
+                                                }
+                                            }
+                                    } else {
+                                        val fallbackProfile = UserProfile(
+                                            uid = uid,
+                                            username = fallbackUsername,
+                                            displayName = fallbackUsername,
+                                            email = firebaseUser.email ?: "",
+                                            hasCompletedProfile = false
+                                        )
+                                        trySend(fallbackProfile)
+                                    }
                                 }
                             }
-                        }
-                        .addOnFailureListener {
-                            trySend(UserProfile(uid = uid, username = fallbackUsername, email = firebaseUser.email ?: ""))
-                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "User snapshot listener setup error: ${e.message}")
+                    }
                 } else {
                     val fallbackProfile = UserProfile(
                         uid = uid,
                         username = fallbackUsername,
-                        email = firebaseUser.email ?: ""
+                        displayName = fallbackUsername,
+                        email = firebaseUser.email ?: "",
+                        hasCompletedProfile = false
                     )
                     trySend(fallbackProfile)
                 }
@@ -95,6 +128,7 @@ class TradingRepository {
         auth.addAuthStateListener(authStateListener)
         awaitClose {
             auth.removeAuthStateListener(authStateListener)
+            firestoreUserListener?.remove()
         }
     }
 
@@ -117,11 +151,22 @@ class TradingRepository {
                 Log.w(TAG, "Notice setting displayName: ${e.message}")
             }
 
+            val now = System.currentTimeMillis()
             val profile = UserProfile(
                 uid = uid,
                 username = trimmedUsername,
+                displayName = trimmedUsername,
+                bio = "",
+                photoURL = "",
                 email = email.trim(),
-                createdAt = System.currentTimeMillis()
+                score = 0L,
+                totalTrades = 0,
+                wins = 0,
+                losses = 0,
+                pnl = 0.0,
+                createdAt = now,
+                updatedAt = now,
+                hasCompletedProfile = false
             )
 
             // Save to Firestore users collection
@@ -134,11 +179,15 @@ class TradingRepository {
             val initialLeaderboard = LeaderboardEntry(
                 uid = uid,
                 username = trimmedUsername,
-                score = ScoreCalculator.BASE_SCORE,
+                displayName = trimmedUsername,
+                photoURL = "",
+                score = 0L,
                 totalTrades = 0,
+                wins = 0,
+                losses = 0,
                 winRate = 0.0,
                 totalPnl = 0.0,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = now
             )
             FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(initialLeaderboard.toMap())?.await()
             FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.setValue(initialLeaderboard.toMap())?.await()
@@ -187,15 +236,24 @@ class TradingRepository {
             val finalProfile = profile ?: UserProfile(
                 uid = uid,
                 username = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
-                email = user.email ?: ""
+                displayName = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
+                email = user.email ?: "",
+                score = 0L,
+                totalTrades = 0,
+                wins = 0,
+                losses = 0,
+                pnl = 0.0,
+                hasCompletedProfile = false
             )
 
-            // Ensure profile exists in Firestore / RTDB
-            try {
-                FirebaseManager.firestore?.collection("users")?.document(uid)?.set(finalProfile.toMap(), SetOptions.merge())
-                FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(finalProfile.toMap())
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync profile notice: ${e.message}")
+            // If profile didn't exist yet, initialize it in Firestore / RTDB
+            if (profile == null) {
+                try {
+                    FirebaseManager.firestore?.collection("users")?.document(uid)?.set(finalProfile.toMap(), SetOptions.merge())
+                    FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(finalProfile.toMap())
+                } catch (e: Exception) {
+                    Log.w(TAG, "Sync initial profile notice: ${e.message}")
+                }
             }
 
             Result.success(finalProfile)
@@ -211,6 +269,84 @@ class TradingRepository {
         } catch (e: Exception) {
             Log.e(TAG, "Logout error: ${e.message}", e)
         }
+    }
+
+    suspend fun fetchAllUserTradesDirect(uid: String): List<Trade> {
+        if (uid.isBlank()) return emptyList()
+        val tradesMap = mutableMapOf<String, Trade>()
+
+        // 1. Try Firestore users/{uid}/trades
+        try {
+            val snapshot = FirebaseManager.firestore?.collection("users")?.document(uid)?.collection("trades")?.get()?.await()
+            if (snapshot != null && !snapshot.isEmpty) {
+                snapshot.documents.forEach { doc ->
+                    try {
+                        val trade = Trade.fromMap(doc.id, doc.data ?: emptyMap())
+                        tradesMap[trade.id.ifEmpty { doc.id }] = trade
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Parse user trade error: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fetch firestore subcollection trades notice: ${e.message}")
+        }
+
+        // 2. Try Firestore root trades collection (fallback)
+        try {
+            val rootSnapshot = FirebaseManager.firestore?.collection("trades")
+                ?.whereEqualTo("userId", uid)?.get()?.await()
+            if (rootSnapshot != null && !rootSnapshot.isEmpty) {
+                rootSnapshot.documents.forEach { doc ->
+                    try {
+                        val trade = Trade.fromMap(doc.id, doc.data ?: emptyMap())
+                        tradesMap[trade.id.ifEmpty { doc.id }] = trade
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Parse root trade error: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fetch firestore root trades notice: ${e.message}")
+        }
+
+        // 3. Try Realtime Database
+        try {
+            val rtdbSnapshot = FirebaseManager.database?.reference?.child("users")?.child(uid)?.child("trades")?.get()?.await()
+            if (rtdbSnapshot != null && rtdbSnapshot.exists()) {
+                for (child in rtdbSnapshot.children) {
+                    try {
+                        @Suppress("UNCHECKED_CAST")
+                        val map = child.value as? Map<String, Any?>
+                        if (map != null) {
+                            val id = child.key ?: ""
+                            val trade = Trade.fromMap(id, map)
+                            tradesMap[trade.id.ifEmpty { id }] = trade
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Parse RTDB trade child error: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fetch RTDB trades notice: ${e.message}")
+        }
+
+        // 4. Try local Room DB
+        try {
+            localDb?.tradeDao()?.getTradesForUserOnce(uid)?.let { cached ->
+                cached.forEach { entity ->
+                    val trade = entity.toTrade()
+                    if (!tradesMap.containsKey(trade.id)) {
+                        tradesMap[trade.id] = trade
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fetch local DB trades notice: ${e.message}")
+        }
+
+        return tradesMap.values.sortedByDescending { it.timestamp }
     }
 
     // Observe real-time trades under "users/{uid}/trades" with local Room cache fallback
@@ -237,17 +373,30 @@ class TradingRepository {
             }
         }
 
+        // 2. Fetch directly to synchronize immediately
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val directTrades = fetchAllUserTradesDirect(uid)
+                if (directTrades.isNotEmpty()) {
+                    trySend(directTrades)
+                    localDb?.tradeDao()?.insertTrades(directTrades.map { TradeEntity.fromTrade(it) })
+                    syncUserTradesAndScore(uid, directTrades)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct trade fetch/sync notice: ${e.message}")
+            }
+        }
+
         val firestore = FirebaseManager.firestore
         val rtdb = FirebaseManager.database
 
         var firestoreListener: ListenerRegistration? = null
         var rtdbListener: ValueEventListener? = null
 
-        // 2. Attach Firestore Real-time listener for users/{uid}/trades
+        // 3. Attach Firestore Real-time listener for users/{uid}/trades (without index-requiring orderBy)
         if (firestore != null) {
             try {
                 firestoreListener = firestore.collection("users").document(uid).collection("trades")
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
                     .addSnapshotListener { snapshot, error ->
                         if (error != null) {
                             Log.w(TAG, "Firestore trades snapshot error: ${error.message}")
@@ -260,15 +409,17 @@ class TradingRepository {
                                 } catch (e: Exception) {
                                     null
                                 }
-                            }
+                            }.sortedByDescending { it.timestamp }
+
                             trySend(trades)
 
-                            // Cache in local Room DB
+                            // Cache in local Room DB and synchronize real stats & score to users/{uid}
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     localDb?.tradeDao()?.insertTrades(trades.map { TradeEntity.fromTrade(it) })
+                                    syncUserTradesAndScore(uid, trades)
                                 } catch (e: Exception) {
-                                    Log.w(TAG, "Room cache write error: ${e.message}")
+                                    Log.w(TAG, "Room cache write/sync error: ${e.message}")
                                 }
                             }
                         }
@@ -278,7 +429,7 @@ class TradingRepository {
             }
         }
 
-        // 3. Attach Realtime Database listener for users/{uid}/trades
+        // 4. Attach Realtime Database listener for users/{uid}/trades
         if (rtdb != null) {
             try {
                 val tradesRef = rtdb.reference.child("users").child(uid).child("trades")
@@ -300,12 +451,13 @@ class TradingRepository {
                             val sortedTrades = trades.sortedByDescending { it.timestamp }
                             trySend(sortedTrades)
 
-                            // Cache in local Room DB
+                            // Cache in local Room DB and synchronize real stats & score
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     localDb?.tradeDao()?.insertTrades(sortedTrades.map { TradeEntity.fromTrade(it) })
+                                    syncUserTradesAndScore(uid, sortedTrades)
                                 } catch (e: Exception) {
-                                    Log.w(TAG, "Room cache write error: ${e.message}")
+                                    Log.w(TAG, "Room cache write/sync error: ${e.message}")
                                 }
                             }
                         }
@@ -414,44 +566,171 @@ class TradingRepository {
         }
     }
 
-    // Observe Global Leaderboard
+    // Observe Global Leaderboard with real-time updates across all registered users in Firestore
     fun observeLeaderboard(): Flow<List<LeaderboardEntry>> = callbackFlow {
         val firestore = FirebaseManager.firestore
         val rtdb = FirebaseManager.database
 
-        var firestoreListener: ListenerRegistration? = null
-        var rtdbListener: ValueEventListener? = null
+        val allUsersMap = java.util.concurrent.ConcurrentHashMap<String, LeaderboardEntry>()
 
+        var firestoreUsersListener: ListenerRegistration? = null
+        var firestoreLeaderboardListener: ListenerRegistration? = null
+        var rtdbUsersListener: ValueEventListener? = null
+        var rtdbLeaderboardListener: ValueEventListener? = null
+
+        // Helper to merge, sort, and rank all known users across data sources
+        fun mergeAndEmit(entries: List<LeaderboardEntry>) {
+            if (entries.isEmpty() && allUsersMap.isNotEmpty()) {
+                return
+            }
+            for (entry in entries) {
+                if (entry.uid.isBlank()) continue
+                allUsersMap.compute(entry.uid) { _, existing ->
+                    if (existing == null) {
+                        entry
+                    } else {
+                        val username = if (entry.username.isNotBlank() && entry.username != "Trader") entry.username else existing.username
+                        val displayName = if (entry.displayName.isNotBlank() && entry.displayName != "Trader") entry.displayName else existing.displayName
+                        val photoURL = if (entry.photoURL.isNotBlank()) entry.photoURL else existing.photoURL
+                        val score = maxOf(entry.score, existing.score)
+                        val totalTrades = maxOf(entry.totalTrades, existing.totalTrades)
+                        val wins = maxOf(entry.wins, existing.wins)
+                        val losses = maxOf(entry.losses, existing.losses)
+                        val winRate = if (entry.winRate > 0) entry.winRate else existing.winRate
+                        val totalPnl = if (entry.totalPnl != 0.0) entry.totalPnl else existing.totalPnl
+                        val updatedAt = maxOf(entry.updatedAt, existing.updatedAt)
+
+                        LeaderboardEntry(
+                            uid = entry.uid,
+                            username = username,
+                            displayName = displayName,
+                            photoURL = photoURL,
+                            score = score,
+                            totalTrades = totalTrades,
+                            wins = wins,
+                            losses = losses,
+                            winRate = winRate,
+                            totalPnl = totalPnl,
+                            updatedAt = updatedAt
+                        )
+                    }
+                }
+            }
+
+            val sorted = allUsersMap.values
+                .sortedWith(
+                    compareByDescending<LeaderboardEntry> { it.score }
+                        .thenByDescending { it.totalTrades }
+                        .thenByDescending { it.winRate }
+                        .thenByDescending { it.updatedAt }
+                        .thenBy { it.username.lowercase() }
+                )
+            for ((idx, item) in sorted.withIndex()) {
+                Log.d("LEADERBOARD_DEBUG", "LEADERBOARD DATA: username=${item.username}, score=${item.score}, totalTrades=${item.totalTrades}, rank=${idx + 1}")
+            }
+            trySend(sorted)
+        }
+
+        // 1. Initial direct fetch of the complete 'users' and 'leaderboard' collections without filtering
         if (firestore != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val snapshot = firestore.collection("users").get().await()
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        val entries = snapshot.documents.mapNotNull { doc ->
+                            try {
+                                val data = doc.data ?: return@mapNotNull null
+                                val uid = doc.id
+                                if (uid.isBlank()) return@mapNotNull null
+                                LeaderboardEntry.fromMap(uid, data)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        mergeAndEmit(entries)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Initial users direct fetch notice: ${e.message}")
+                }
+
+                try {
+                    val snapshot = firestore.collection("leaderboard").get().await()
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        val entries = snapshot.documents.mapNotNull { doc ->
+                            try {
+                                val data = doc.data ?: return@mapNotNull null
+                                val uid = doc.id
+                                if (uid.isBlank()) return@mapNotNull null
+                                LeaderboardEntry.fromMap(uid, data)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        mergeAndEmit(entries)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Initial leaderboard direct fetch notice: ${e.message}")
+                }
+            }
+
+            // 2. Real-time snapshot listener on the complete 'users' collection
             try {
-                firestoreListener = firestore.collection("leaderboard")
-                    .orderBy("score", Query.Direction.DESCENDING)
-                    .limit(100)
+                firestoreUsersListener = firestore.collection("users")
                     .addSnapshotListener { snapshot, error ->
                         if (error != null) {
-                            Log.w(TAG, "Leaderboard Firestore listen error: ${error.message}")
+                            Log.w(TAG, "Leaderboard Firestore users listen error: ${error.message}")
                             return@addSnapshotListener
                         }
                         if (snapshot != null) {
                             val entries = snapshot.documents.mapNotNull { doc ->
                                 try {
-                                    LeaderboardEntry.fromMap(doc.id, doc.data ?: emptyMap())
+                                    val data = doc.data ?: return@mapNotNull null
+                                    val uid = doc.id
+                                    if (uid.isBlank()) return@mapNotNull null
+                                    LeaderboardEntry.fromMap(uid, data)
                                 } catch (e: Exception) {
                                     null
                                 }
                             }
-                            trySend(entries)
+                            mergeAndEmit(entries)
                         }
                     }
             } catch (e: Exception) {
-                Log.e(TAG, "Leaderboard Firestore setup error: ${e.message}", e)
+                Log.e(TAG, "Leaderboard Firestore users setup error: ${e.message}", e)
+            }
+
+            // 3. Real-time snapshot listener on the 'leaderboard' collection
+            try {
+                firestoreLeaderboardListener = firestore.collection("leaderboard")
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            Log.w(TAG, "Leaderboard Firestore leaderboard listen error: ${error.message}")
+                            return@addSnapshotListener
+                        }
+                        if (snapshot != null) {
+                            val entries = snapshot.documents.mapNotNull { doc ->
+                                try {
+                                    val data = doc.data ?: return@mapNotNull null
+                                    val uid = doc.id
+                                    if (uid.isBlank()) return@mapNotNull null
+                                    LeaderboardEntry.fromMap(uid, data)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                            mergeAndEmit(entries)
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Leaderboard Firestore leaderboard setup error: ${e.message}", e)
             }
         }
 
+        // 4. Realtime Database listeners (merging into allUsersMap)
         if (rtdb != null) {
             try {
-                val lbRef = rtdb.reference.child("leaderboard")
-                rtdbListener = object : ValueEventListener {
+                val usersRef = rtdb.reference.child("users")
+                rtdbUsersListener = object : ValueEventListener {
                     override fun onDataChange(snapshot: DataSnapshot) {
                         if (snapshot.exists()) {
                             val entries = mutableListOf<LeaderboardEntry>()
@@ -460,14 +739,49 @@ class TradingRepository {
                                     @Suppress("UNCHECKED_CAST")
                                     val map = child.value as? Map<String, Any?>
                                     if (map != null) {
-                                        entries.add(LeaderboardEntry.fromMap(child.key ?: "", map))
+                                        val uid = child.key ?: ""
+                                        if (uid.isNotBlank()) {
+                                            entries.add(LeaderboardEntry.fromMap(uid, map))
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Leaderboard RTDB users parse error: ${e.message}")
+                                }
+                            }
+                            mergeAndEmit(entries)
+                        }
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "RTDB users leaderboard cancelled: ${error.message}")
+                    }
+                }
+                usersRef.addValueEventListener(rtdbUsersListener)
+            } catch (e: Exception) {
+                Log.e(TAG, "RTDB users leaderboard setup error: ${e.message}", e)
+            }
+
+            try {
+                val leaderboardRef = rtdb.reference.child("leaderboard")
+                rtdbLeaderboardListener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        if (snapshot.exists()) {
+                            val entries = mutableListOf<LeaderboardEntry>()
+                            for (child in snapshot.children) {
+                                try {
+                                    @Suppress("UNCHECKED_CAST")
+                                    val map = child.value as? Map<String, Any?>
+                                    if (map != null) {
+                                        val uid = child.key ?: ""
+                                        if (uid.isNotBlank()) {
+                                            entries.add(LeaderboardEntry.fromMap(uid, map))
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     Log.w(TAG, "Leaderboard RTDB parse error: ${e.message}")
                                 }
                             }
-                            val sorted = entries.sortedByDescending { it.score }
-                            trySend(sorted)
+                            mergeAndEmit(entries)
                         }
                     }
 
@@ -475,17 +789,25 @@ class TradingRepository {
                         Log.w(TAG, "RTDB leaderboard cancelled: ${error.message}")
                     }
                 }
-                lbRef.addValueEventListener(rtdbListener)
+                leaderboardRef.addValueEventListener(rtdbLeaderboardListener)
             } catch (e: Exception) {
                 Log.e(TAG, "RTDB leaderboard setup error: ${e.message}", e)
             }
         }
 
         awaitClose {
-            firestoreListener?.remove()
-            if (rtdbListener != null && rtdb != null) {
+            firestoreUsersListener?.remove()
+            firestoreLeaderboardListener?.remove()
+            if (rtdbUsersListener != null && rtdb != null) {
                 try {
-                    rtdb.reference.child("leaderboard").removeEventListener(rtdbListener)
+                    rtdb.reference.child("users").removeEventListener(rtdbUsersListener)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error removing RTDB users listener: ${e.message}")
+                }
+            }
+            if (rtdbLeaderboardListener != null && rtdb != null) {
+                try {
+                    rtdb.reference.child("leaderboard").removeEventListener(rtdbLeaderboardListener)
                 } catch (e: Exception) {
                     Log.w(TAG, "Error removing RTDB leaderboard listener: ${e.message}")
                 }
@@ -493,9 +815,88 @@ class TradingRepository {
         }
     }
 
+    suspend fun syncUserTradesAndScore(uid: String, trades: List<Trade>) {
+        try {
+            if (uid.isBlank()) return
+            val calculatedScore = ScoreCalculator.calculateScore(trades)
+            val wins = trades.count { it.result == TradeResult.WIN }
+            val losses = trades.count { it.result == TradeResult.LOSS }
+            val settled = wins + losses
+            val winRate = if (settled > 0) (wins.toDouble() / settled.toDouble()) * 100.0 else 0.0
+            val totalPnl = trades.sumOf { it.pnl }
+            val now = System.currentTimeMillis()
+
+            // Fetch latest user doc to preserve displayName and photoURL
+            val userDoc = FirebaseManager.firestore?.collection("users")?.document(uid)?.get()?.await()
+            val userData = userDoc?.data ?: emptyMap()
+            val currentUsername = (userData["username"] as? String)?.ifBlank { null }
+                ?: FirebaseManager.auth?.currentUser?.displayName
+                ?: FirebaseManager.auth?.currentUser?.email?.substringBefore("@")
+                ?: "Trader"
+            val currentDisplayName = (userData["displayName"] as? String)?.ifBlank { currentUsername } ?: currentUsername
+            val currentPhotoURL = (userData["photoURL"] as? String) ?: (userData["photoUrl"] as? String ?: "")
+            val bio = (userData["bio"] as? String) ?: ""
+            val email = (userData["email"] as? String) ?: (FirebaseManager.auth?.currentUser?.email ?: "")
+            val createdAt = (userData["createdAt"] as? Number)?.toLong() ?: now
+            val hasCompletedProfile = (userData["hasCompletedProfile"] as? Boolean) ?: true
+
+            val scoreUpdates = mapOf<String, Any?>(
+                "uid" to uid,
+                "username" to currentUsername,
+                "displayName" to currentDisplayName,
+                "bio" to bio,
+                "photoURL" to currentPhotoURL,
+                "email" to email,
+                "score" to calculatedScore,
+                "totalTrades" to trades.size,
+                "wins" to wins,
+                "losses" to losses,
+                "winRate" to winRate,
+                "pnl" to totalPnl,
+                "totalPnl" to totalPnl,
+                "hasCompletedProfile" to hasCompletedProfile,
+                "createdAt" to createdAt,
+                "updatedAt" to now
+            )
+
+            Log.d("TRADING_SYNC", """
+AUTH UID: $uid
+USER DOCUMENT: users/$uid
+USER SCORE: $calculatedScore
+USER TOTAL TRADES: ${trades.size}
+TRADE DOCUMENT COUNT: ${trades.size}
+""".trimIndent())
+
+            // Update Firestore users/{uid} document as the single source of truth
+            FirebaseManager.firestore?.collection("users")?.document(uid)?.set(scoreUpdates, SetOptions.merge())?.await()
+
+            // Update RTDB users/{uid} node
+            FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(scoreUpdates)?.await()
+
+            // Also keep leaderboard node synced
+            val entry = LeaderboardEntry(
+                uid = uid,
+                username = currentUsername,
+                displayName = currentDisplayName,
+                photoURL = currentPhotoURL,
+                score = calculatedScore,
+                totalTrades = trades.size,
+                wins = wins,
+                losses = losses,
+                winRate = winRate,
+                totalPnl = totalPnl,
+                updatedAt = now
+            )
+            FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(entry.toMap(), SetOptions.merge())
+            FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.setValue(entry.toMap())
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not sync user trades and score: ${e.message}")
+        }
+    }
+
     private suspend fun updateLeaderboardScore(uid: String, username: String) {
         try {
-            // Fetch latest user trades from Firestore / RTDB
+            // Fetch latest user trades from Firestore / RTDB / Local DB
             val allTrades = mutableListOf<Trade>()
 
             try {
@@ -526,26 +927,7 @@ class TradingRepository {
                 }
             }
 
-            val calculatedScore = ScoreCalculator.calculateScore(allTrades)
-            val wins = allTrades.count { it.result == TradeResult.WIN }
-            val losses = allTrades.count { it.result == TradeResult.LOSS }
-            val settled = wins + losses
-            val winRate = if (settled > 0) (wins.toDouble() / settled.toDouble()) * 100.0 else 0.0
-            val totalPnl = allTrades.sumOf { it.pnl }
-
-            val entry = LeaderboardEntry(
-                uid = uid,
-                username = username,
-                displayName = username,
-                score = calculatedScore,
-                totalTrades = allTrades.size,
-                winRate = winRate,
-                totalPnl = totalPnl,
-                updatedAt = System.currentTimeMillis()
-            )
-
-            FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(entry.toMap(), SetOptions.merge())
-            FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.setValue(entry.toMap())
+            syncUserTradesAndScore(uid, allTrades)
         } catch (e: Exception) {
             Log.w(TAG, "Could not update leaderboard score: ${e.message}")
         }
@@ -583,6 +965,7 @@ class TradingRepository {
             val cleanUsername = username.trim()
             val cleanDisplayName = displayName.trim().ifEmpty { cleanUsername }
             val cleanBio = bio.trim()
+            val now = System.currentTimeMillis()
 
             // Update Auth User displayName
             FirebaseManager.auth?.currentUser?.let { user ->
@@ -597,42 +980,79 @@ class TradingRepository {
                 }
             }
 
-            val updates = mapOf<String, Any?>(
+            // Fetch existing data to maintain score and stats
+            val currentDoc = FirebaseManager.firestore?.collection("users")?.document(uid)?.get()?.await()
+            val existingData = currentDoc?.data ?: emptyMap()
+            val rawScore = (existingData["score"] as? Number)?.toLong() ?: 0L
+            val existingTrades = (existingData["totalTrades"] as? Number)?.toInt() ?: 0
+            val existingWins = (existingData["wins"] as? Number)?.toInt() ?: 0
+            val existingLosses = (existingData["losses"] as? Number)?.toInt() ?: 0
+            val existingPnl = (existingData["pnl"] as? Number)?.toDouble() ?: 0.0
+            val existingWinRate = (existingData["winRate"] as? Number)?.toDouble()
+                ?: (if (existingWins + existingLosses > 0) (existingWins.toDouble() / (existingWins + existingLosses)) * 100.0 else 0.0)
+            val createdAt = (existingData["createdAt"] as? Number)?.toLong() ?: now
+            val userEmail = FirebaseManager.auth?.currentUser?.email ?: (existingData["email"] as? String ?: "")
+
+            // Sanitize legacy score if 0 trades
+            val existingScore = if (existingTrades == 0 && existingWins == 0 && existingLosses == 0 && existingPnl == 0.0 && rawScore == 1000L) 0L else rawScore
+
+            val fullUserUpdates = mapOf<String, Any?>(
+                "uid" to uid,
                 "username" to cleanUsername,
                 "displayName" to cleanDisplayName,
                 "bio" to cleanBio,
-                "photoURL" to photoURL
+                "photoURL" to photoURL,
+                "email" to userEmail,
+                "score" to existingScore,
+                "totalTrades" to existingTrades,
+                "wins" to existingWins,
+                "losses" to existingLosses,
+                "winRate" to existingWinRate,
+                "pnl" to existingPnl,
+                "hasCompletedProfile" to true,
+                "createdAt" to createdAt,
+                "updatedAt" to now
             )
 
             // Update Firestore users/{uid}
-            FirebaseManager.firestore?.collection("users")?.document(uid)?.set(updates, SetOptions.merge())?.await()
+            FirebaseManager.firestore?.collection("users")?.document(uid)?.set(fullUserUpdates, SetOptions.merge())?.await()
 
             // Update Realtime Database
-            FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(updates)?.await()
+            FirebaseManager.database?.reference?.child("users")?.child(uid)?.updateChildren(fullUserUpdates)?.await()
 
-            // Update Leaderboard entry if exists
-            val leaderboardUpdates = mapOf<String, Any?>(
-                "username" to cleanUsername,
-                "displayName" to cleanDisplayName,
-                "photoURL" to photoURL
+            // Update Leaderboard collection
+            val leaderboardUpdates = LeaderboardEntry(
+                uid = uid,
+                username = cleanUsername,
+                displayName = cleanDisplayName,
+                photoURL = photoURL,
+                score = existingScore,
+                totalTrades = existingTrades,
+                wins = existingWins,
+                losses = existingLosses,
+                winRate = existingWinRate,
+                totalPnl = existingPnl,
+                updatedAt = now
             )
-            FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(leaderboardUpdates, SetOptions.merge())
-            FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.updateChildren(leaderboardUpdates)
+            FirebaseManager.firestore?.collection("leaderboard")?.document(uid)?.set(leaderboardUpdates.toMap(), SetOptions.merge())?.await()
+            FirebaseManager.database?.reference?.child("leaderboard")?.child(uid)?.setValue(leaderboardUpdates.toMap())?.await()
 
-            // Fetch updated profile
-            val currentDoc = FirebaseManager.firestore?.collection("users")?.document(uid)?.get()?.await()
-            val updatedProfile = if (currentDoc != null && currentDoc.exists()) {
-                UserProfile.fromMap(uid, currentDoc.data ?: emptyMap())
-            } else {
-                UserProfile(
-                    uid = uid,
-                    username = cleanUsername,
-                    displayName = cleanDisplayName,
-                    bio = cleanBio,
-                    photoURL = photoURL,
-                    email = FirebaseManager.auth?.currentUser?.email ?: ""
-                )
-            }
+            val updatedProfile = UserProfile(
+                uid = uid,
+                username = cleanUsername,
+                displayName = cleanDisplayName,
+                bio = cleanBio,
+                photoURL = photoURL,
+                email = userEmail,
+                score = existingScore,
+                totalTrades = existingTrades,
+                wins = existingWins,
+                losses = existingLosses,
+                pnl = existingPnl,
+                hasCompletedProfile = true,
+                createdAt = createdAt,
+                updatedAt = now
+            )
 
             Result.success(updatedProfile)
         } catch (e: Exception) {
