@@ -1,6 +1,8 @@
 package com.example.ui.journal
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -62,6 +64,7 @@ import com.example.ui.theme.LiquidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun JournalView(
@@ -203,7 +206,8 @@ fun JournalView(
                         TradeItemCard(
                             trade = trade,
                             onEdit = { onEditTradeClick(trade) },
-                            onDelete = { tradeToDeleteId = trade.id }
+                            onDelete = { tradeToDeleteId = trade.id },
+                            modifier = Modifier.animateItem()
                         )
                     }
                 }
@@ -220,7 +224,7 @@ fun JournalView(
             },
             text = {
                 Text(
-                    text = "Are you sure you want to delete this trade? Your GM score and win rate will be automatically recalculated.",
+                    text = "Are you sure you want to delete this trade? Your trading score and win rate will be automatically recalculated.",
                     color = colors.textSecondary
                 )
             },
@@ -308,9 +312,21 @@ private fun FilterChipItem(
     testTag: String
 ) {
     val colors = LiquidTheme.colors
-    val bgColor = if (isSelected) colors.indigoAccent else colors.card
-    val borderColor = if (isSelected) colors.indigoLight else colors.border
-    val textColor = if (isSelected) Color.White else colors.textSecondary
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) colors.indigoAccent else colors.card,
+        animationSpec = tween(180),
+        label = "chip_bg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) colors.indigoLight else colors.border,
+        animationSpec = tween(180),
+        label = "chip_border"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) Color.White else colors.textSecondary,
+        animationSpec = tween(180),
+        label = "chip_text"
+    )
 
     Box(
         contentAlignment = Alignment.Center,
@@ -335,45 +351,87 @@ private fun FilterChipItem(
 private fun TradeItemCard(
     trade: Trade,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = LiquidTheme.colors
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.US) }
     val formattedDate = remember(trade.timestamp) { dateFormat.format(Date(trade.timestamp)) }
 
+    val isLoss = trade.result == TradeResult.LOSS || trade.pnl < -0.0001
+    val isWin = trade.result == TradeResult.WIN || trade.pnl > 0.0001
+    val displayPnl = when (trade.result) {
+        TradeResult.LOSS -> -abs(trade.pnl)
+        TradeResult.WIN -> abs(trade.pnl)
+        TradeResult.BREAKEVEN -> 0.0
+        TradeResult.OPEN -> trade.pnl
+    }
+
+    val cardBorder = when {
+        isLoss -> colors.crimsonLoss.copy(alpha = 0.55f)
+        isWin -> colors.emeraldWin.copy(alpha = 0.35f)
+        else -> colors.border
+    }
+    val cardGlow = when {
+        isLoss -> colors.crimsonLoss.copy(alpha = 0.18f)
+        isWin -> colors.emeraldWin.copy(alpha = 0.12f)
+        else -> null
+    }
+
     GlassCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .testTag("trade_card_${trade.id}"),
-        shape = RoundedCornerShape(18.dp)
+        shape = RoundedCornerShape(18.dp),
+        borderColor = cardBorder,
+        glowColor = cardGlow
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Top Row: Symbol, Badges, and PnL
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = trade.symbol,
-                        color = colors.textPrimary,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 17.sp
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Left visual accent strip for instant trade outcome identification
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .height(130.dp)
+                    .background(
+                        when {
+                            isLoss -> colors.crimsonLoss
+                            isWin -> colors.emeraldWin
+                            else -> colors.textMuted.copy(alpha = 0.4f)
+                        }
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    DirectionBadge(direction = trade.direction)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    ResultBadge(result = trade.result)
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(16.dp)
+            ) {
+                // Top Row: Symbol, Badges, and PnL
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = trade.symbol,
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        DirectionBadge(direction = trade.direction)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        ResultBadge(result = trade.result)
+                    }
+
+                    CurrencyPnlText(
+                        amount = displayPnl,
+                        fontSize = 17
+                    )
                 }
 
-                CurrencyPnlText(
-                    amount = trade.pnl,
-                    fontSize = 17
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
             // Metrics Row: Entry, SL, TP, R:R
             Row(
@@ -470,6 +528,7 @@ private fun TradeItemCard(
             }
         }
     }
+}
 }
 
 @Composable

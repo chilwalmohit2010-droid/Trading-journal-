@@ -102,7 +102,7 @@ fun LeaderboardView(
                             }
                         }
                         Text(
-                            text = if (stats.rank <= 10) "Top 10 Global GM Trader" else "Global Standing: Rank #${stats.rank}",
+                            text = if (stats.rank <= 10) "Top 10 Global Trader" else "Global Standing: Rank #${stats.rank}",
                             color = colors.indigoLight,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
@@ -199,7 +199,8 @@ fun LeaderboardView(
                     LeaderboardRow(
                         rank = rank,
                         entry = entry,
-                        isCurrentUser = isCurrentUser
+                        isCurrentUser = isCurrentUser,
+                        modifier = Modifier.animateItem()
                     )
                 }
 
@@ -239,14 +240,15 @@ fun LeaderboardView(
 private fun LeaderboardRow(
     rank: Int,
     entry: LeaderboardEntry,
-    isCurrentUser: Boolean
+    isCurrentUser: Boolean,
+    modifier: Modifier = Modifier
 ) {
     val colors = LiquidTheme.colors
     val borderColor = if (isCurrentUser) colors.indigoAccent.copy(alpha = 0.6f) else colors.border
     val bgColor = if (isCurrentUser) colors.indigoAccent.copy(alpha = 0.15f) else colors.card
 
     GlassCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .testTag("leaderboard_row_$rank"),
         backgroundColor = bgColor,

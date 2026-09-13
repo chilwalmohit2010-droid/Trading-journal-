@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Trading Diary GM"
+rootProject.name = "Trading Dairy"
 
 include(":app")

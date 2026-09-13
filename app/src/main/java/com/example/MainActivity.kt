@@ -164,7 +164,7 @@ fun TradingDiaryApp(
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "TRADING DIARY GM",
+                                text = "TRADING DIARY",
                                 color = colors.textPrimary,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,

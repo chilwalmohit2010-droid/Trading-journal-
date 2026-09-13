@@ -111,7 +111,7 @@ fun AuthScreen(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ShowChart,
-                    contentDescription = "Trading Diary GM Logo",
+                    contentDescription = "Trading Diary Logo",
                     tint = Color.White,
                     modifier = Modifier.size(40.dp)
                 )
@@ -120,7 +120,7 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "TRADING DIARY GM",
+                text = "TRADING DIARY",
                 color = colors.textPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black,
@@ -288,7 +288,7 @@ fun AuthScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = if (isSignUpMode) "Already have an account? Log In" else "New trader? Create account & claim 1,000 GM Pts",
+                        text = if (isSignUpMode) "Already have an account? Log In" else "New trader? Create account & claim 1,000 Pts",
                         color = colors.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier

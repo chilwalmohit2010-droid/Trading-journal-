@@ -313,5 +313,53 @@ class ExampleUnitTest {
         assertEquals(80.0, entry.winRate, 0.01)
         assertEquals(1200.50, entry.totalPnl, 0.01)
     }
+
+    @Test
+    fun testLossMakingTrade_isSubtractedFromNetPnl() {
+        // Test winning trade (+500) and loss-making trade (-200, entered as 200)
+        val winTrade = Trade(
+            id = "w1",
+            symbol = "BTC/USDT",
+            result = TradeResult.WIN,
+            pnl = 500.0
+        )
+        val rawLossTrade = Trade(
+            id = "l1",
+            symbol = "ETH/USDT",
+            result = TradeResult.LOSS,
+            pnl = 200.0
+        )
+
+        // effectivePnl and normalized() guarantee negative sign for LOSS
+        assertEquals(500.0, winTrade.effectivePnl, 0.001)
+        assertEquals(-200.0, rawLossTrade.effectivePnl, 0.001)
+
+        val normalizedLoss = rawLossTrade.normalized()
+        assertEquals(-200.0, normalizedLoss.pnl, 0.001)
+
+        // fromMap also ensures normalized sign
+        val reconstructedLoss = Trade.fromMap("l1", mapOf("result" to "LOSS", "pnl" to 200.0))
+        assertEquals(-200.0, reconstructedLoss.pnl, 0.001)
+
+        // toMap exports negative PnL to Firestore
+        assertEquals(-200.0, (rawLossTrade.toMap()["pnl"] as Number).toDouble(), 0.001)
+
+        // Sum of net PnL: 500 - 200 = 300 (Loss is subtracted, NEVER added!)
+        val trades = listOf(winTrade, normalizedLoss)
+        val netPnl = trades.sumOf { it.pnl }
+        assertEquals(300.0, netPnl, 0.001)
+    }
+
+    @Test
+    fun testMultipleLossTrades_properlyAccumulateNegativePnl() {
+        val loss1 = Trade.fromMap("l1", mapOf("symbol" to "SOL/USDT", "result" to "LOSS", "pnl" to 150.0))
+        val loss2 = Trade(id = "l2", symbol = "EUR/USD", result = TradeResult.LOSS, pnl = -350.0).normalized()
+
+        assertEquals(-150.0, loss1.pnl, 0.001)
+        assertEquals(-350.0, loss2.pnl, 0.001)
+
+        val totalPnl = listOf(loss1, loss2).sumOf { it.pnl }
+        assertEquals(-500.0, totalPnl, 0.001)
+    }
 }
 

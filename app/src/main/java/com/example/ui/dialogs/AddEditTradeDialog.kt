@@ -1,5 +1,12 @@
 package com.example.ui.dialogs
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -70,7 +79,14 @@ fun AddEditTradeDialog(
     var entryPriceStr by remember { mutableStateOf(if (trade != null && trade.entryPrice > 0) trade.entryPrice.toString() else "") }
     var stopLossStr by remember { mutableStateOf(if (trade != null && trade.stopLoss > 0) trade.stopLoss.toString() else "") }
     var takeProfitStr by remember { mutableStateOf(if (trade != null && trade.takeProfit > 0) trade.takeProfit.toString() else "") }
-    var pnlStr by remember { mutableStateOf(if (trade != null) trade.pnl.toString() else "") }
+    var pnlStr by remember {
+        mutableStateOf(
+            if (trade != null) {
+                val amt = abs(trade.pnl)
+                if (amt == 0.0) "" else if (amt % 1.0 == 0.0) amt.toLong().toString() else amt.toString()
+            } else ""
+        )
+    }
     var result by remember { mutableStateOf(trade?.result ?: TradeResult.WIN) }
     var strategy by remember { mutableStateOf(trade?.strategy ?: "") }
     var notes by remember { mutableStateOf(trade?.notes ?: "") }
@@ -243,12 +259,17 @@ fun AddEditTradeDialog(
                         .border(1.dp, colors.border, RoundedCornerShape(12.dp))
                         .padding(3.dp)
                 ) {
+                    val winBg by animateColorAsState(
+                        targetValue = if (result == TradeResult.WIN) colors.emeraldWin else Color.Transparent,
+                        animationSpec = tween(220),
+                        label = "win_bg"
+                    )
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(9.dp))
-                            .background(if (result == TradeResult.WIN) colors.emeraldWin else Color.Transparent)
+                            .background(winBg)
                             .clickable { result = TradeResult.WIN }
                             .testTag("btn_select_win")
                     ) {
@@ -260,12 +281,17 @@ fun AddEditTradeDialog(
                         )
                     }
 
+                    val lossBg by animateColorAsState(
+                        targetValue = if (result == TradeResult.LOSS) colors.crimsonLoss else Color.Transparent,
+                        animationSpec = tween(220),
+                        label = "loss_bg"
+                    )
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(9.dp))
-                            .background(if (result == TradeResult.LOSS) colors.crimsonLoss else Color.Transparent)
+                            .background(lossBg)
                             .clickable { result = TradeResult.LOSS }
                             .testTag("btn_select_loss")
                     ) {
@@ -277,12 +303,17 @@ fun AddEditTradeDialog(
                         )
                     }
 
+                    val beBg by animateColorAsState(
+                        targetValue = if (result == TradeResult.BREAKEVEN) colors.textMuted else Color.Transparent,
+                        animationSpec = tween(220),
+                        label = "be_bg"
+                    )
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(9.dp))
-                            .background(if (result == TradeResult.BREAKEVEN) colors.textMuted else Color.Transparent)
+                            .background(beBg)
                             .clickable { result = TradeResult.BREAKEVEN }
                             .testTag("btn_select_be")
                     ) {
@@ -371,15 +402,94 @@ fun AddEditTradeDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Realized P&L ($)
-                GlassTextField(
-                    value = pnlStr,
-                    onValueChange = { pnlStr = it },
-                    label = "Realized P&L ($)",
-                    placeholder = "e.g. 250.00 or -120.00",
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    testTag = "input_pnl"
-                )
+                // Realized P&L ($) with loss feedback and colored indicator
+                val pnlLabel = when (result) {
+                    TradeResult.LOSS -> "Realized Loss Amount ($)"
+                    TradeResult.WIN -> "Realized Profit Amount ($)"
+                    else -> "Realized P&L ($)"
+                }
+                val pnlPlaceholder = when (result) {
+                    TradeResult.LOSS -> "e.g. 150.00 (deducted as loss)"
+                    TradeResult.WIN -> "e.g. 250.00 (added as profit)"
+                    else -> "0.00"
+                }
+
+                Column {
+                    GlassTextField(
+                        value = pnlStr,
+                        onValueChange = { pnlStr = it },
+                        label = pnlLabel,
+                        placeholder = pnlPlaceholder,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        testTag = "input_pnl"
+                    )
+
+                    AnimatedVisibility(
+                        visible = result == TradeResult.LOSS && pnlStr.isNotBlank(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        val parsedAmt = pnlStr.toDoubleOrNull()
+                        val lossDisplay = if (parsedAmt != null) String.format(Locale.US, "-$%,.2f", abs(parsedAmt)) else "-$0.00"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, start = 4.dp, end = 4.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.crimsonLoss.copy(alpha = 0.12f))
+                                .border(1.dp, colors.crimsonLoss.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.TrendingDown,
+                                contentDescription = null,
+                                tint = colors.crimsonLoss,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Losing Trade: $lossDisplay will be deducted from your Net P&L",
+                                color = colors.crimsonLoss,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = result == TradeResult.WIN && pnlStr.isNotBlank(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        val parsedAmt = pnlStr.toDoubleOrNull()
+                        val winDisplay = if (parsedAmt != null) String.format(Locale.US, "+$%,.2f", abs(parsedAmt)) else "+$0.00"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, start = 4.dp, end = 4.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.emeraldWin.copy(alpha = 0.12f))
+                                .border(1.dp, colors.emeraldWin.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                contentDescription = null,
+                                tint = colors.emeraldWin,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Winning Trade: $winDisplay will be added to your Net P&L",
+                                color = colors.emeraldWin,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -491,9 +601,21 @@ fun AddEditTradeDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                val buttonText = when {
+                    isEditing -> "UPDATE TRADE"
+                    result == TradeResult.LOSS -> "RECORD LOSS TRADE"
+                    result == TradeResult.WIN -> "RECORD WIN TRADE"
+                    else -> "RECORD TRADE"
+                }
+                val buttonGradient = when (result) {
+                    TradeResult.LOSS -> listOf(Color(0xFF991B1B), Color(0xFFDC2626))
+                    TradeResult.WIN -> listOf(Color(0xFF065F46), Color(0xFF10B981))
+                    else -> listOf(colors.indigoDark, colors.indigoAccent)
+                }
+
                 // Save Action Button
                 GlassButton(
-                    text = if (isEditing) "UPDATE TRADE" else "RECORD TRADE",
+                    text = buttonText,
                     onClick = {
                         if (isSubmitting || isLoading) return@GlassButton
                         isSubmitting = true
@@ -501,7 +623,13 @@ fun AddEditTradeDialog(
                         val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
                         val sl = stopLossStr.toDoubleOrNull() ?: 0.0
                         val tp = takeProfitStr.toDoubleOrNull() ?: 0.0
-                        val pnl = pnlStr.toDoubleOrNull() ?: 0.0
+                        val rawPnl = pnlStr.toDoubleOrNull() ?: 0.0
+                        val finalPnl = when (result) {
+                            TradeResult.LOSS -> -abs(rawPnl)
+                            TradeResult.WIN -> abs(rawPnl)
+                            TradeResult.BREAKEVEN -> 0.0
+                            TradeResult.OPEN -> rawPnl
+                        }
                         val finalRR = if (calculatedRR > 0) calculatedRR else trade?.riskRewardRatio ?: 0.0
 
                         val tradeId = if (!trade?.id.isNullOrBlank()) trade!!.id else java.util.UUID.randomUUID().toString()
@@ -515,7 +643,7 @@ fun AddEditTradeDialog(
                             takeProfit = tp,
                             riskRewardRatio = finalRR,
                             result = result,
-                            pnl = pnl,
+                            pnl = finalPnl,
                             timestamp = trade?.timestamp ?: System.currentTimeMillis(),
                             notes = notes.trim(),
                             strategy = strategy.trim()
@@ -524,7 +652,7 @@ fun AddEditTradeDialog(
                     },
                     enabled = !isSubmitting && !isLoading,
                     isLoading = isSubmitting || isLoading,
-                    accentGradient = listOf(colors.indigoDark, colors.indigoAccent),
+                    accentGradient = buttonGradient,
                     testTag = "btn_save_trade"
                 )
             }

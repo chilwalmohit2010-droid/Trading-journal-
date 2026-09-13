@@ -247,7 +247,7 @@ fun ProfileView(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     ProfileStatItem(
-                        label = "GM Score",
+                        label = "Trading Score",
                         value = "${stats.currentScore} PTS",
                         valueColor = colors.trophyGold
                     )
@@ -297,7 +297,7 @@ fun ProfileView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Historical GM Score Timeline Line Chart
+        // Historical Trading Score Timeline Line Chart
         ScoreProgressionCard(
             trades = trades,
             currentScore = stats.currentScore

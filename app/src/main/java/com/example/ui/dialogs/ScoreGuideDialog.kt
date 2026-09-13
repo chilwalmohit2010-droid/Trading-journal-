@@ -100,7 +100,7 @@ fun ScoreGuideDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "GM Scoring Formula",
+                            text = "Trading Score Formula",
                             color = colors.textPrimary,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Black
@@ -123,7 +123,7 @@ fun ScoreGuideDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "The GM (Grandmaster) Trading Score measures execution consistency, discipline, risk management, and overall edge.",
+                    text = "The Trading Score measures execution consistency, discipline, risk management, and overall edge.",
                     color = colors.textSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp

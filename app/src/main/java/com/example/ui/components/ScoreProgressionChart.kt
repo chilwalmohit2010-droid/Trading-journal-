@@ -236,7 +236,7 @@ fun ScoreProgressionCard(
                             letterSpacing = 1.sp
                         )
                         Text(
-                            text = "Historical GM Score Timeline",
+                            text = "Historical Score Timeline",
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Normal

@@ -1,7 +1,17 @@
 package com.example.ui.dashboard
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoGraph
@@ -49,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.AppThemeMode
 import com.example.data.model.LeaderboardEntry
 import com.example.data.model.Trade
+import com.example.data.model.TradeResult
 import com.example.data.model.TradingStats
 import com.example.data.model.UserProfile
 import com.example.ui.TradeFilter
@@ -68,6 +81,7 @@ import com.example.ui.components.ResultBadge
 import com.example.ui.components.ScoreProgressionCard
 import com.example.ui.components.UserAvatar
 import com.example.ui.dialogs.AddEditTradeDialog
+import kotlin.math.abs
 import com.example.ui.dialogs.EditProfileDialog
 import com.example.ui.dialogs.ScoreGuideDialog
 import com.example.ui.journal.JournalView
@@ -173,10 +187,18 @@ fun DashboardScreen(
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    Crossfade(
+                    AnimatedContent(
                         targetState = selectedTab,
-                        animationSpec = tween(180),
-                        label = "tab_crossfade",
+                        transitionSpec = {
+                            if (targetState.ordinal > initialState.ordinal) {
+                                (slideInHorizontally { width -> width / 4 } + fadeIn(animationSpec = tween(220)))
+                                    .togetherWith(slideOutHorizontally { width -> -width / 4 } + fadeOut(animationSpec = tween(200)))
+                            } else {
+                                (slideInHorizontally { width -> -width / 4 } + fadeIn(animationSpec = tween(220)))
+                                    .togetherWith(slideOutHorizontally { width -> width / 4 } + fadeOut(animationSpec = tween(200)))
+                            }
+                        },
+                        label = "tab_animated_transition",
                         modifier = Modifier.fillMaxSize()
                     ) { tab ->
                         when (tab) {
@@ -327,7 +349,7 @@ private fun TopTradingHeader(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // GM Score Pill
+            // Trading Score Pill
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -399,7 +421,7 @@ private fun OverviewTabContent(
                 ) {
                     Column {
                         Text(
-                            text = "GM TRADING SCORE",
+                            text = "TRADING SCORE",
                             color = colors.textMuted,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -495,9 +517,24 @@ private fun OverviewTabContent(
         Spacer(modifier = Modifier.height(14.dp))
 
         // Total Net P&L Card
+        val isLossPnl = stats.totalPnl < -0.0001
+        val isWinPnl = stats.totalPnl > 0.0001
+        val pnlBorder = when {
+            isLossPnl -> colors.crimsonLoss.copy(alpha = 0.50f)
+            isWinPnl -> colors.emeraldWin.copy(alpha = 0.35f)
+            else -> colors.border
+        }
+        val pnlGlow = when {
+            isLossPnl -> colors.crimsonLoss.copy(alpha = 0.16f)
+            isWinPnl -> colors.emeraldWin.copy(alpha = 0.10f)
+            else -> null
+        }
+
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp)
+            shape = RoundedCornerShape(20.dp),
+            borderColor = pnlBorder,
+            glowColor = pnlGlow
         ) {
             Row(
                 modifier = Modifier
@@ -534,8 +571,8 @@ private fun OverviewTabContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                        contentDescription = null,
+                        imageVector = if (stats.totalPnl >= 0) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                        contentDescription = if (stats.totalPnl >= 0) "Net Profit" else "Net Loss",
                         tint = if (stats.totalPnl >= 0) colors.emeraldWin else colors.crimsonLoss,
                         modifier = Modifier.size(24.dp)
                     )
@@ -600,7 +637,7 @@ private fun OverviewTabContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Start tracking your setups to compute your real-time GM score.",
+                        text = "Start tracking your setups to compute your real-time trading score.",
                         color = colors.textMuted,
                         fontSize = 12.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -654,39 +691,74 @@ private fun OverviewMiniStat(
 @Composable
 private fun RecentTradeRow(trade: Trade) {
     val colors = LiquidTheme.colors
+    val isLoss = trade.result == TradeResult.LOSS || trade.pnl < -0.0001
+    val displayPnl = when (trade.result) {
+        TradeResult.LOSS -> -abs(trade.pnl)
+        TradeResult.WIN -> abs(trade.pnl)
+        TradeResult.BREAKEVEN -> 0.0
+        TradeResult.OPEN -> trade.pnl
+    }
+    val cardBorder = when {
+        isLoss -> colors.crimsonLoss.copy(alpha = 0.50f)
+        trade.result == TradeResult.WIN -> colors.emeraldWin.copy(alpha = 0.30f)
+        else -> colors.border
+    }
+    val cardGlow = if (isLoss) colors.crimsonLoss.copy(alpha = 0.14f) else null
+
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(14.dp),
+        borderColor = cardBorder,
+        glowColor = cardGlow
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                DirectionBadge(direction = trade.direction)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = trade.symbol,
-                        color = colors.textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+            // Left indicator strip for loss/win
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(48.dp)
+                    .background(
+                        when {
+                            isLoss -> colors.crimsonLoss
+                            trade.result == TradeResult.WIN -> colors.emeraldWin
+                            else -> Color.Transparent
+                        }
                     )
-                    Text(
-                        text = trade.strategy.ifEmpty { "Price Action" },
-                        color = colors.textMuted,
-                        fontSize = 11.sp
-                    )
-                }
-            }
+            )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ResultBadge(result = trade.result)
-                Spacer(modifier = Modifier.width(10.dp))
-                CurrencyPnlText(amount = trade.pnl, fontSize = 14)
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DirectionBadge(direction = trade.direction)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = trade.symbol,
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = trade.strategy.ifEmpty { "Price Action" },
+                            color = colors.textMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ResultBadge(result = trade.result)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    CurrencyPnlText(amount = displayPnl, fontSize = 14)
+                }
             }
         }
     }
@@ -843,10 +915,25 @@ private fun SleekNavTab(
     val activeColor = colors.indigoAccent
     val inactiveColor = colors.textMuted
 
+    val animatedColor by animateColorAsState(
+        targetValue = if (isSelected) activeColor else inactiveColor,
+        animationSpec = tween(180),
+        label = "nav_color"
+    )
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.08f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "nav_scale"
+    )
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = modifier
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 4.dp)
@@ -855,13 +942,13 @@ private fun SleekNavTab(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (isSelected) activeColor else inactiveColor,
+            tint = animatedColor,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label.uppercase(),
-            color = if (isSelected) activeColor else inactiveColor,
+            color = animatedColor,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             fontSize = 9.5.sp,
             letterSpacing = 0.5.sp

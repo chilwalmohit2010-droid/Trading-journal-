@@ -50,7 +50,7 @@ class TradingRepository {
                 val firestore = FirebaseManager.firestore
                 val rtdb = FirebaseManager.database
                 val uid = firebaseUser.uid
-                val fallbackUsername = firebaseUser.displayName ?: firebaseUser.email?.substringBefore("@") ?: "GM Trader"
+                val fallbackUsername = firebaseUser.displayName ?: firebaseUser.email?.substringBefore("@") ?: "Trader"
 
                 // Real-time Snapshot Listener on users/{uid} (Read-only, no write-backs)
                 if (firestore != null) {
@@ -225,8 +225,8 @@ class TradingRepository {
 
             val finalProfile = profile ?: UserProfile(
                 uid = uid,
-                username = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
-                displayName = user.displayName ?: user.email?.substringBefore("@") ?: "GM Trader",
+                username = user.displayName ?: user.email?.substringBefore("@") ?: "Trader",
+                displayName = user.displayName ?: user.email?.substringBefore("@") ?: "Trader",
                 email = user.email ?: "",
                 score = ScoreCalculator.BASE_SCORE,
                 totalTrades = 0,
@@ -475,7 +475,13 @@ class TradingRepository {
     suspend fun saveTrade(uid: String, username: String, trade: Trade): Result<Trade> {
         return try {
             val tradeId = if (trade.id.isNotBlank()) trade.id else UUID.randomUUID().toString()
-            val finalTrade = trade.copy(id = tradeId, userId = uid)
+            val normalizedPnl = when (trade.result) {
+                TradeResult.LOSS -> -kotlin.math.abs(trade.pnl)
+                TradeResult.WIN -> kotlin.math.abs(trade.pnl)
+                TradeResult.BREAKEVEN -> 0.0
+                TradeResult.OPEN -> trade.pnl
+            }
+            val finalTrade = trade.copy(id = tradeId, userId = uid, pnl = normalizedPnl)
 
             val firestore = FirebaseManager.firestore
             val rtdb = FirebaseManager.database
@@ -817,7 +823,14 @@ class TradingRepository {
             val losses = trades.count { it.result == TradeResult.LOSS }
             val settled = wins + losses
             val winRate = if (settled > 0) (wins.toDouble() / settled.toDouble()) * 100.0 else 0.0
-            val totalPnl = trades.sumOf { it.pnl }
+            val totalPnl = trades.sumOf { trade ->
+                when (trade.result) {
+                    TradeResult.LOSS -> -kotlin.math.abs(trade.pnl)
+                    TradeResult.WIN -> kotlin.math.abs(trade.pnl)
+                    TradeResult.BREAKEVEN -> 0.0
+                    TradeResult.OPEN -> trade.pnl
+                }
+            }
             val now = System.currentTimeMillis()
 
             // Fetch latest user doc to preserve displayName and photoURL

@@ -8,11 +8,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * TRADING DIARY GM PERFORMANCE SCORING SYSTEM
+ * TRADING DAIRY PERFORMANCE SCORING SYSTEM
  *
  * SCORING FORMULA DOCUMENTATION:
  * -------------------------------------------------------------
- * 1. Base Score = 1,000 pts (Starting Baseline for every GM trader)
+ * 1. Base Score = 1,000 pts (Starting Baseline for every trader)
  *
  * 2. Win / Loss Performance Factor:
  *    - Valid Winning Trade: +45 points base
@@ -85,7 +85,13 @@ object ScoreCalculator {
 
         for (trade in sortedTrades) {
             validTrades++
-            totalRealizedPnl += trade.pnl
+            val normalizedPnl = when (trade.result) {
+                TradeResult.LOSS -> -abs(trade.pnl)
+                TradeResult.WIN -> abs(trade.pnl)
+                TradeResult.BREAKEVEN -> 0.0
+                TradeResult.OPEN -> trade.pnl
+            }
+            totalRealizedPnl += normalizedPnl
 
             // Anti-farming check: Rapid successive trade burst dampening
             val isBurstSpam = lastTradeTime > 0 && (trade.timestamp - lastTradeTime) < 10_000L

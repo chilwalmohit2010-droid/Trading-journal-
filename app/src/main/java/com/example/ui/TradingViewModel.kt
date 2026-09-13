@@ -92,6 +92,8 @@ class TradingViewModel(
                     _currentUser.value = user
                     _authUiState.value = AuthUiState.Authenticated(user)
                     observeTrades(user.uid)
+                    // Refresh leaderboard with user included
+                    mergeCurrentUserIntoLeaderboard(user, _leaderboard.value)
                 } else {
                     _currentUser.value = null
                     _authUiState.value = AuthUiState.Unauthenticated()
@@ -100,6 +102,48 @@ class TradingViewModel(
                 }
             }
         }
+    }
+
+    private fun mergeCurrentUserIntoLeaderboard(user: UserProfile, entries: List<LeaderboardEntry>) {
+        if (user.uid.isBlank()) return
+        val existingIndex = entries.indexOfFirst { it.uid == user.uid }
+        val updatedList = if (existingIndex >= 0) {
+            entries.mapIndexed { idx, item ->
+                if (idx == existingIndex) {
+                    item.copy(
+                        username = if (user.username.isNotBlank() && user.username != "Trader") user.username else item.username,
+                        displayName = if (user.displayName.isNotBlank() && user.displayName != "Trader") user.displayName else item.displayName,
+                        photoURL = if (user.photoURL.isNotBlank()) user.photoURL else item.photoURL,
+                        score = user.score
+                    )
+                } else item
+            }
+        } else {
+            val newEntry = LeaderboardEntry(
+                uid = user.uid,
+                username = if (user.username.isNotBlank()) user.username else "Trader",
+                displayName = if (user.displayName.isNotBlank()) user.displayName else "Trader",
+                photoURL = user.photoURL,
+                score = user.score,
+                totalTrades = user.totalTrades,
+                wins = user.wins,
+                losses = user.losses,
+                winRate = if (user.wins + user.losses > 0) (user.wins.toDouble() / (user.wins + user.losses)) * 100.0 else 0.0,
+                totalPnl = user.pnl,
+                updatedAt = user.updatedAt
+            )
+            entries + newEntry
+        }
+
+        val sorted = updatedList.sortedWith(
+            compareByDescending<LeaderboardEntry> { it.score }
+                .thenByDescending { it.totalTrades }
+                .thenByDescending { it.winRate }
+                .thenByDescending { it.updatedAt }
+                .thenBy { it.username.lowercase() }
+        )
+        _leaderboard.value = sorted
+        recomputeStats(_allTrades.value, sorted, user.uid)
     }
 
     private fun observeTrades(uid: String) {
@@ -116,10 +160,11 @@ class TradingViewModel(
         leaderboardJob?.cancel()
         leaderboardJob = viewModelScope.launch {
             repository.observeLeaderboard().collectLatest { entries ->
-                _leaderboard.value = entries
-                val uid = _currentUser.value?.uid ?: ""
-                if (uid.isNotEmpty()) {
-                    recomputeStats(_allTrades.value, entries, uid)
+                val currentUser = _currentUser.value
+                if (currentUser != null && currentUser.uid.isNotBlank()) {
+                    mergeCurrentUserIntoLeaderboard(currentUser, entries)
+                } else {
+                    _leaderboard.value = entries
                 }
             }
         }
@@ -132,10 +177,27 @@ class TradingViewModel(
         val breakevens = trades.count { it.result == TradeResult.BREAKEVEN }
         val settled = wins + losses
         val winRate = if (settled > 0) (wins.toDouble() / settled.toDouble()) * 100.0 else 0.0
-        val totalPnl = trades.sumOf { it.pnl }
+        val totalPnl = trades.sumOf { trade ->
+            when (trade.result) {
+                TradeResult.LOSS -> -abs(trade.pnl)
+                TradeResult.WIN -> abs(trade.pnl)
+                TradeResult.BREAKEVEN -> 0.0
+                TradeResult.OPEN -> trade.pnl
+            }
+        }
 
-        val grossProfit = trades.filter { it.pnl > 0 }.sumOf { it.pnl }
-        val grossLoss = abs(trades.filter { it.pnl < 0 }.sumOf { it.pnl })
+        val grossProfit = trades.sumOf { trade ->
+            when {
+                trade.result == TradeResult.WIN || trade.pnl > 0.0001 -> abs(trade.pnl)
+                else -> 0.0
+            }
+        }
+        val grossLoss = trades.sumOf { trade ->
+            when {
+                trade.result == TradeResult.LOSS || trade.pnl < -0.0001 -> abs(trade.pnl)
+                else -> 0.0
+            }
+        }
         val profitFactor = if (grossLoss > 0.000001) grossProfit / grossLoss else if (grossProfit > 0) 99.9 else 0.0
 
         val validRRs = trades.map { it.riskRewardRatio }.filter { it > 0.0 }

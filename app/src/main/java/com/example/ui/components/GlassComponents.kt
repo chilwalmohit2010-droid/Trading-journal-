@@ -427,8 +427,11 @@ fun CurrencyPnlText(
         else -> colors.textSecondary
     }
 
-    val sign = if (isPositive && showPlus) "+" else ""
-    val formatted = String.format(Locale.US, "$sign$%,.2f", amount)
+    val formatted = when {
+        isPositive -> if (showPlus) String.format(Locale.US, "+$%,.2f", amount) else String.format(Locale.US, "$%,.2f", amount)
+        isNegative -> String.format(Locale.US, "-$%,.2f", kotlin.math.abs(amount))
+        else -> "$0.00"
+    }
 
     Text(
         text = formatted,

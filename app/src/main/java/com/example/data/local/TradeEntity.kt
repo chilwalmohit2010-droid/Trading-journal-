@@ -23,37 +23,54 @@ data class TradeEntity(
     val notes: String,
     val strategy: String
 ) {
-    fun toTrade(): Trade = Trade(
-        id = id,
-        userId = userId,
-        symbol = symbol,
-        direction = try { TradeDirection.valueOf(direction) } catch (e: Exception) { TradeDirection.LONG },
-        entryPrice = entryPrice,
-        stopLoss = stopLoss,
-        takeProfit = takeProfit,
-        riskRewardRatio = riskRewardRatio,
-        result = try { TradeResult.valueOf(result) } catch (e: Exception) { TradeResult.WIN },
-        pnl = pnl,
-        timestamp = timestamp,
-        notes = notes,
-        strategy = strategy
-    )
+    fun toTrade(): Trade {
+        val parsedResult = try { TradeResult.valueOf(result) } catch (e: Exception) { TradeResult.WIN }
+        val normalizedPnl = when (parsedResult) {
+            TradeResult.LOSS -> -kotlin.math.abs(pnl)
+            TradeResult.WIN -> kotlin.math.abs(pnl)
+            TradeResult.BREAKEVEN -> 0.0
+            TradeResult.OPEN -> pnl
+        }
+        return Trade(
+            id = id,
+            userId = userId,
+            symbol = symbol,
+            direction = try { TradeDirection.valueOf(direction) } catch (e: Exception) { TradeDirection.LONG },
+            entryPrice = entryPrice,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            riskRewardRatio = riskRewardRatio,
+            result = parsedResult,
+            pnl = normalizedPnl,
+            timestamp = timestamp,
+            notes = notes,
+            strategy = strategy
+        )
+    }
 
     companion object {
-        fun fromTrade(trade: Trade): TradeEntity = TradeEntity(
-            id = trade.id,
-            userId = trade.userId,
-            symbol = trade.symbol,
-            direction = trade.direction.name,
-            entryPrice = trade.entryPrice,
-            stopLoss = trade.stopLoss,
-            takeProfit = trade.takeProfit,
-            riskRewardRatio = trade.riskRewardRatio,
-            result = trade.result.name,
-            pnl = trade.pnl,
-            timestamp = trade.timestamp,
-            notes = trade.notes,
-            strategy = trade.strategy
-        )
+        fun fromTrade(trade: Trade): TradeEntity {
+            val normalizedPnl = when (trade.result) {
+                TradeResult.LOSS -> -kotlin.math.abs(trade.pnl)
+                TradeResult.WIN -> kotlin.math.abs(trade.pnl)
+                TradeResult.BREAKEVEN -> 0.0
+                TradeResult.OPEN -> trade.pnl
+            }
+            return TradeEntity(
+                id = trade.id,
+                userId = trade.userId,
+                symbol = trade.symbol,
+                direction = trade.direction.name,
+                entryPrice = trade.entryPrice,
+                stopLoss = trade.stopLoss,
+                takeProfit = trade.takeProfit,
+                riskRewardRatio = trade.riskRewardRatio,
+                result = trade.result.name,
+                pnl = normalizedPnl,
+                timestamp = trade.timestamp,
+                notes = trade.notes,
+                strategy = trade.strategy
+            )
+        }
     }
 }
