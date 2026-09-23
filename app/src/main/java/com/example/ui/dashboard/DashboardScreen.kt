@@ -3,6 +3,7 @@ package com.example.ui.dashboard
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -12,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -191,11 +195,27 @@ fun DashboardScreen(
                         targetState = selectedTab,
                         transitionSpec = {
                             if (targetState.ordinal > initialState.ordinal) {
-                                (slideInHorizontally { width -> width / 4 } + fadeIn(animationSpec = tween(220)))
-                                    .togetherWith(slideOutHorizontally { width -> -width / 4 } + fadeOut(animationSpec = tween(200)))
+                                (slideInHorizontally(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    initialOffsetX = { width -> width / 6 }
+                                ) + fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)))
+                                    .togetherWith(
+                                        slideOutHorizontally(
+                                            animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                            targetOffsetX = { width -> -width / 6 }
+                                        ) + fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                                    )
                             } else {
-                                (slideInHorizontally { width -> -width / 4 } + fadeIn(animationSpec = tween(220)))
-                                    .togetherWith(slideOutHorizontally { width -> width / 4 } + fadeOut(animationSpec = tween(200)))
+                                (slideInHorizontally(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    initialOffsetX = { width -> -width / 6 }
+                                ) + fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)))
+                                    .togetherWith(
+                                        slideOutHorizontally(
+                                            animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                            targetOffsetX = { width -> width / 6 }
+                                        ) + fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                                    )
                             }
                         },
                         label = "tab_animated_transition",
@@ -875,10 +895,25 @@ private fun SleekBottomNav(
             }
         }
 
-        // Diamond Center Floating Action Button
+        // Center Floating Action Button with iOS spring physics
+        val fabInteractionSource = remember { MutableInteractionSource() }
+        val isFabPressed by fabInteractionSource.collectIsPressedAsState()
+        val fabScale by animateFloatAsState(
+            targetValue = if (isFabPressed) 0.92f else 1.0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            ),
+            label = "fab_spring"
+        )
+
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .graphicsLayer {
+                    scaleX = fabScale
+                    scaleY = fabScale
+                }
                 .size(54.dp)
                 .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = colors.indigoAccent)
                 .clip(RoundedCornerShape(18.dp))
@@ -888,7 +923,11 @@ private fun SleekBottomNav(
                     )
                 )
                 .border(2.5.dp, colors.bg, RoundedCornerShape(18.dp))
-                .clickable(onClick = { safeFabClick() })
+                .clickable(
+                    interactionSource = fabInteractionSource,
+                    indication = ripple(color = Color.White),
+                    onClick = { safeFabClick() }
+                )
                 .testTag("fab_add_trade"),
             contentAlignment = Alignment.Center
         ) {
@@ -915,43 +954,87 @@ private fun SleekNavTab(
     val activeColor = colors.indigoAccent
     val inactiveColor = colors.textMuted
 
+    val tabInteractionSource = remember { MutableInteractionSource() }
+    val isTabPressed by tabInteractionSource.collectIsPressedAsState()
+
     val animatedColor by animateColorAsState(
         targetValue = if (isSelected) activeColor else inactiveColor,
-        animationSpec = tween(180),
+        animationSpec = tween(160),
         label = "nav_color"
     )
     val animatedScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        targetValue = when {
+            isTabPressed -> 0.94f
+            isSelected -> 1.04f
+            else -> 1.0f
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "nav_scale"
     )
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    val pillAlpha by animateFloatAsState(
+        targetValue = if (isSelected) 1.0f else 0.0f,
+        animationSpec = tween(180),
+        label = "pill_alpha"
+    )
+
+    Box(
         modifier = modifier
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp)
-            .testTag(testTag)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(
+                interactionSource = tabInteractionSource,
+                indication = ripple(color = colors.indigoLight),
+                onClick = onClick
+            )
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = animatedColor,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = label.uppercase(),
-            color = animatedColor,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            fontSize = 9.5.sp,
-            letterSpacing = 0.5.sp
-        )
+        // Active glass pill indicator
+        if (pillAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = pillAlpha }
+                    .background(
+                        color = colors.indigoAccent.copy(alpha = if (colors.isDark) 0.14f else 0.12f),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = colors.indigoAccent.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .testTag(testTag)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = animatedColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label.uppercase(),
+                color = animatedColor,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 9.5.sp,
+                letterSpacing = 0.5.sp
+            )
+        }
     }
 }

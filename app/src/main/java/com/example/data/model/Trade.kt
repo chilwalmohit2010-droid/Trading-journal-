@@ -28,6 +28,11 @@ data class Trade(
     val strategy: String = ""
 ) {
     /**
+     * Exit price represented by takeProfit or close target.
+     */
+    val exitPrice: Double
+        get() = takeProfit
+    /**
      * Signed P&L guaranteed to be negative for LOSS, positive for WIN, 0.0 for BREAKEVEN.
      */
     val effectivePnl: Double

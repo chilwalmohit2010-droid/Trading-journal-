@@ -2,11 +2,15 @@ package com.example.ui.components
 
 import android.graphics.BitmapFactory
 import android.util.Base64
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +39,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +49,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -80,9 +86,22 @@ fun GlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    // Smooth iOS spring tactile press physics (0.982 scale on tap, compositor-level)
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isPressed && onClick != null) 0.982f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "glass_card_spring_scale"
+    )
+
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
+            interactionSource = interactionSource,
             indication = ripple(color = LiquidTheme.colors.indigoLight),
             onClick = onClick
         )
@@ -98,6 +117,10 @@ fun GlassCard(
 
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .shadow(
                 elevation = if (LiquidTheme.colors.isDark) 6.dp else 4.dp,
                 shape = shape,
@@ -124,10 +147,27 @@ fun GlassButton(
     accentGradient: List<Color> = listOf(LiquidTheme.colors.indigoDark, LiquidTheme.colors.indigoAccent),
     testTag: String = "glass_button"
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    // iOS spring tactile touch feedback (scale 0.97 on press with gentle natural rebound)
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isPressed && enabled && !isLoading) 0.97f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "glass_button_spring"
+    )
+
     val alpha = if (enabled && !isLoading) 1f else 0.5f
 
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .height(50.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
@@ -137,7 +177,7 @@ fun GlassButton(
             .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
             .clickable(
                 enabled = enabled && !isLoading,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = ripple(color = Color.White),
                 onClick = onClick
             )
@@ -190,6 +230,9 @@ fun GlassTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     isError: Boolean = false,
     errorMessage: String? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     testTag: String = "glass_text_field"
 ) {
     val colors = LiquidTheme.colors
@@ -205,7 +248,9 @@ fun GlassTextField(
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
             isError = isError,
-            singleLine = true,
+            singleLine = singleLine,
+            minLines = minLines,
+            maxLines = maxLines,
             shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = if (colors.isDark) Color(0x14FFFFFF) else Color(0xCCFFFFFF),

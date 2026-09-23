@@ -7,6 +7,10 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -117,6 +123,25 @@ fun EditProfileDialog(
         }
     }
 
+    var dialogAppeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        dialogAppeared = true
+    }
+
+    val dialogScale by animateFloatAsState(
+        targetValue = if (dialogAppeared) 1.0f else 0.94f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "edit_profile_spring_scale"
+    )
+    val dialogAlpha by animateFloatAsState(
+        targetValue = if (dialogAppeared) 1.0f else 0.0f,
+        animationSpec = tween(180),
+        label = "edit_profile_fade"
+    )
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -139,6 +164,11 @@ fun EditProfileDialog(
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = dialogScale
+                        scaleY = dialogScale
+                        alpha = dialogAlpha
+                    }
                     .clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null,
