@@ -162,66 +162,90 @@ fun GlassmorphicTradeEntryForm(
         }
     }
 
-    // Dynamic Calculations
+    // Dynamic Calculations properly keyed to Compose State
     val entryPrice = entryPriceStr.toDoubleOrNull() ?: 0.0
     val stopLoss = stopLossStr.toDoubleOrNull() ?: 0.0
     val targetPrice = targetPriceStr.toDoubleOrNull() ?: 0.0
     val manualRR = manualRRStr.toDoubleOrNull() ?: 0.0
 
-    // Auto calculate Risk amount and %
-    val riskAmount by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && stopLoss > 0) {
-                if (side == TradeDirection.LONG) {
-                    if (entryPrice > stopLoss) entryPrice - stopLoss else 0.0
-                } else {
-                    if (stopLoss > entryPrice) stopLoss - entryPrice else 0.0
-                }
-            } else 0.0
-        }
-    }
-    val riskPercent by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && riskAmount > 0) (riskAmount / entryPrice) * 100.0 else 0.0
-        }
+    // Auto calculate Risk amount ($)
+    val riskAmount = remember(entryPriceStr, stopLossStr, side) {
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        val sl = stopLossStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0.0 && sl > 0.0) {
+            val diff = if (side == TradeDirection.LONG) (entry - sl) else (sl - entry)
+            if (diff > 0.000001) diff else abs(entry - sl)
+        } else 0.0
     }
 
-    // Auto calculate Reward amount and %
-    val rewardAmount by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && targetPrice > 0) {
-                if (side == TradeDirection.LONG) {
-                    if (targetPrice > entryPrice) targetPrice - entryPrice else 0.0
-                } else {
-                    if (entryPrice > targetPrice) entryPrice - targetPrice else 0.0
-                }
-            } else 0.0
-        }
+    // Auto calculate Risk percentage (%)
+    val riskPercent = remember(entryPriceStr, riskAmount) {
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0.0 && riskAmount > 0.0) (riskAmount / entry) * 100.0 else 0.0
     }
-    val rewardPercent by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && rewardAmount > 0) (rewardAmount / entryPrice) * 100.0 else 0.0
-        }
+
+    // Auto calculate Reward amount ($)
+    val rewardAmount = remember(entryPriceStr, targetPriceStr, side) {
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        val tp = targetPriceStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0.0 && tp > 0.0) {
+            val diff = if (side == TradeDirection.LONG) (tp - entry) else (entry - tp)
+            if (diff > 0.000001) diff else abs(tp - entry)
+        } else 0.0
+    }
+
+    // Auto calculate Reward percentage (%)
+    val rewardPercent = remember(entryPriceStr, rewardAmount) {
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0.0 && rewardAmount > 0.0) (rewardAmount / entry) * 100.0 else 0.0
     }
 
     // Computed or explicit Risk:Reward Ratio
-    val computedRR by remember {
-        derivedStateOf {
-            if (riskAmount > 0.000001 && rewardAmount > 0.000001) {
-                rewardAmount / riskAmount
-            } else if (manualRR > 0.0) {
-                manualRR
-            } else 0.0
+    val computedRR = remember(riskAmount, rewardAmount, manualRRStr) {
+        val manual = manualRRStr.toDoubleOrNull() ?: 0.0
+        if (riskAmount > 0.000001 && rewardAmount > 0.000001) {
+            rewardAmount / riskAmount
+        } else if (manual > 0.0) {
+            manual
+        } else 0.0
+    }
+
+    // Helper to calculate and set Target Price from an R:R value (manual or preset)
+    val applyRRToTarget: (Double) -> Unit = { targetRR ->
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        val sl = stopLossStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0.0 && sl > 0.0 && targetRR > 0.0) {
+            val diff = if (side == TradeDirection.LONG) (entry - sl) else (sl - entry)
+            val effectiveRisk = if (diff > 0.000001) diff else abs(entry - sl)
+            if (effectiveRisk > 0.000001) {
+                val desiredReward = effectiveRisk * targetRR
+                val target = if (side == TradeDirection.LONG) entry + desiredReward else entry - desiredReward
+                if (target > 0.0) {
+                    targetPriceStr = if (target % 1.0 == 0.0) {
+                        String.format(Locale.US, "%.0f", target)
+                    } else {
+                        String.format(Locale.US, "%.2f", target)
+                    }
+                    if (selectedOutcome != TradeResult.WIN && selectedOutcome != TradeResult.LOSS) {
+                        selectedOutcome = TradeResult.WIN
+                    }
+                }
+            }
         }
     }
 
     // Auto suggest outcome when target/entry prices change, unless user manually tapped outcome
-    LaunchedEffect(targetPrice, entryPrice, side) {
-        if (entryPrice > 0 && targetPrice > 0) {
-            val isWinTrade = if (side == TradeDirection.LONG) targetPrice > entryPrice else targetPrice < entryPrice
-            val isLossTrade = if (side == TradeDirection.LONG) targetPrice < entryPrice else targetPrice > entryPrice
-            if (isWinTrade) selectedOutcome = TradeResult.WIN
-            else if (isLossTrade) selectedOutcome = TradeResult.LOSS
+    LaunchedEffect(targetPriceStr, entryPriceStr, side) {
+        val entry = entryPriceStr.toDoubleOrNull() ?: 0.0
+        val target = targetPriceStr.toDoubleOrNull() ?: 0.0
+        if (entry > 0 && target > 0) {
+            val isWinTrade = if (side == TradeDirection.LONG) target > entry else target < entry
+            val isLossTrade = if (side == TradeDirection.LONG) target < entry else target > entry
+            if (isWinTrade && selectedOutcome != TradeResult.WIN && selectedOutcome != TradeResult.BREAKEVEN) {
+                selectedOutcome = TradeResult.WIN
+            } else if (isLossTrade && selectedOutcome != TradeResult.LOSS && selectedOutcome != TradeResult.BREAKEVEN) {
+                selectedOutcome = TradeResult.LOSS
+            }
         }
     }
 
@@ -238,7 +262,7 @@ fun GlassmorphicTradeEntryForm(
     }
 
     val rrPresets = remember {
-        listOf(1.5, 2.0, 2.5, 3.0, 4.0)
+        listOf(1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0)
     }
 
     // OPAQUE ROOT CONTAINER: Screen behind the entry form is completely solid & NOT visible
@@ -730,7 +754,8 @@ fun GlassmorphicTradeEntryForm(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Section 3: PROMINENT RISK : REWARD (R:R) SYSTEM (Directly addresses missing RR)
+                // Section 3: PROMINENT RISK : REWARD (R:R) SYSTEM (Automatic & Manual)
+                val isAutoCalculated = riskAmount > 0.000001 && rewardAmount > 0.000001
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
@@ -754,13 +779,20 @@ fun GlassmorphicTradeEntryForm(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "RISK TO REWARD (R:R)",
-                                    color = colors.textSecondary,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
+                                Column {
+                                    Text(
+                                        text = "RISK TO REWARD (R:R)",
+                                        color = colors.textSecondary,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp
+                                    )
+                                    Text(
+                                        text = if (isAutoCalculated) "Auto-calculated from SL & TP" else if (manualRR > 0) "Manual R:R mode" else "Enter SL & TP or type R:R",
+                                        color = colors.textMuted,
+                                        fontSize = 10.sp
+                                    )
+                                }
                             }
 
                             // Big glowing R:R Badge
@@ -780,13 +812,32 @@ fun GlassmorphicTradeEntryForm(
                                     )
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text(
-                                    text = rrBadgeText,
-                                    color = if (computedRR >= 2.0) colors.emeraldWin else colors.textPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (isAutoCalculated) {
+                                        Text(
+                                            text = "AUTO",
+                                            color = colors.emeraldWin,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                    } else if (manualRR > 0) {
+                                        Text(
+                                            text = "MANUAL",
+                                            color = colors.trophyGold,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                    }
+                                    Text(
+                                        text = rrBadgeText,
+                                        color = if (computedRR >= 2.0) colors.emeraldWin else colors.textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
                         }
 
@@ -824,7 +875,7 @@ fun GlassmorphicTradeEntryForm(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(text = "RATIO", color = colors.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Text(
-                                    text = if (computedRR > 0) String.format(Locale.US, "%.1fx", computedRR) else "—",
+                                    text = if (computedRR > 0) String.format(Locale.US, "%.2fx", computedRR) else "—",
                                     color = colors.trophyGold,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Black
@@ -849,18 +900,68 @@ fun GlassmorphicTradeEntryForm(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Manual R:R Input Field (Allows custom manual ratio entry & auto-calculates Target)
+                        GlassTextField(
+                            value = manualRRStr,
+                            onValueChange = { input ->
+                                manualRRStr = input
+                                val typed = input.toDoubleOrNull()
+                                if (typed != null && typed > 0) {
+                                    applyRRToTarget(typed)
+                                }
+                            },
+                            label = "Manual R:R Ratio (e.g. 2.0 or 3.5)",
+                            placeholder = if (computedRR > 0) String.format(Locale.US, "Current: %.2f", computedRR) else "Type ratio e.g. 2.5",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Calculate,
+                                    contentDescription = null,
+                                    tint = colors.trophyGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            trailingIcon = {
+                                if (riskAmount > 0 && rewardAmount > 0) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(colors.indigoAccent.copy(alpha = 0.2f))
+                                            .border(1.dp, colors.indigoLight.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                val autoVal = rewardAmount / riskAmount
+                                                manualRRStr = String.format(Locale.US, "%.2f", autoVal)
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Sync Auto",
+                                            color = colors.indigoLight,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "input_manual_rr"
+                        )
+
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Quick R:R Auto-Fill Target Presets
                         Text(
-                            text = "Auto-calculate Target from R:R Preset:",
+                            text = "Quick R:R Presets (Auto-calculates Target Price):",
                             color = colors.textMuted,
                             fontSize = 11.sp
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             rrPresets.forEach { preset ->
@@ -880,30 +981,45 @@ fun GlassmorphicTradeEntryForm(
                                             RoundedCornerShape(10.dp)
                                         )
                                         .clickable {
-                                            manualRRStr = preset.toString()
-                                            // If entry price and stop loss exist, calculate and fill Target Price automatically!
-                                            if (entryPrice > 0 && stopLoss > 0 && riskAmount > 0) {
-                                                val desiredReward = riskAmount * preset
-                                                val target = if (side == TradeDirection.LONG) {
-                                                    entryPrice + desiredReward
-                                                } else {
-                                                    entryPrice - desiredReward
-                                                }
-                                                if (target > 0) {
-                                                    targetPriceStr = String.format(Locale.US, "%.2f", target)
-                                                }
-                                            }
+                                            manualRRStr = if (preset % 1.0 == 0.0) String.format(Locale.US, "%.0f", preset) else preset.toString()
+                                            applyRRToTarget(preset)
                                         }
                                         .padding(vertical = 7.dp)
+                                        .testTag("btn_rr_preset_${preset}")
                                 ) {
                                     Text(
-                                        text = "1:${preset}",
+                                        text = if (preset % 1.0 == 0.0) "1:${preset.toInt()}" else "1:${preset}",
                                         color = if (isSelected) Color.White else colors.textPrimary,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Explanatory Tip Banner
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (colors.isDark) Color(0x106366F1) else Color(0x0C4F46E5))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = if (entryPrice > 0 && stopLoss > 0 && targetPrice > 0) {
+                                    "✓ R:R is automatically calculated from Entry, Stop Loss, and Target Price."
+                                } else if (entryPrice > 0 && stopLoss > 0) {
+                                    "💡 Tap any preset above or type a manual R:R to automatically calculate your exact Target Price!"
+                                } else {
+                                    "💡 Enter Entry Price & Stop Loss to enable instant Target & R:R calculations."
+                                },
+                                color = colors.indigoLight,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
