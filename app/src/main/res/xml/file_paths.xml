@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="export_cache" path="exports/" />
+    <files-path name="export_files" path="exports/" />
+    <files-path name="trade_charts" path="trade_charts/" />
+    <cache-path name="camera_photos" path="camera_photos/" />
+</paths>

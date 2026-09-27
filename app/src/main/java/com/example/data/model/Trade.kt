@@ -25,13 +25,19 @@ data class Trade(
     val pnl: Double = 0.0,
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
-    val strategy: String = ""
+    val strategy: String = "",
+    val screenshotUri: String = "",
+    val exitScreenshotUri: String = "",
+    val emotion: String = "",
+    val session: String = "",
+    val checklistScore: Int = 0
 ) {
     /**
      * Exit price represented by takeProfit or close target.
      */
     val exitPrice: Double
         get() = takeProfit
+
     /**
      * Signed P&L guaranteed to be negative for LOSS, positive for WIN, 0.0 for BREAKEVEN.
      */
@@ -60,7 +66,12 @@ data class Trade(
             "pnl" to effectivePnl,
             "timestamp" to timestamp,
             "notes" to notes,
-            "strategy" to strategy
+            "strategy" to strategy,
+            "screenshotUri" to screenshotUri,
+            "exitScreenshotUri" to exitScreenshotUri,
+            "emotion" to emotion,
+            "session" to session,
+            "checklistScore" to checklistScore
         )
     }
 
@@ -89,7 +100,12 @@ data class Trade(
                 pnl = normalizedPnl,
                 timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis(),
                 notes = map["notes"] as? String ?: "",
-                strategy = map["strategy"] as? String ?: ""
+                strategy = map["strategy"] as? String ?: "",
+                screenshotUri = map["screenshotUri"] as? String ?: "",
+                exitScreenshotUri = map["exitScreenshotUri"] as? String ?: "",
+                emotion = map["emotion"] as? String ?: "",
+                session = map["session"] as? String ?: "",
+                checklistScore = (map["checklistScore"] as? Number)?.toInt() ?: 0
             )
         }
     }

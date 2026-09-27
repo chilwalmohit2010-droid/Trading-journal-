@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,10 +42,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +70,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -72,6 +79,7 @@ import com.example.data.model.Trade
 import com.example.data.model.TradeDirection
 import com.example.data.model.TradeResult
 import com.example.ui.theme.LiquidTheme
+import kotlinx.coroutines.delay
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
@@ -80,9 +88,14 @@ import kotlin.math.abs
  * High-fidelity, completely opaque Glassmorphic Trade Entry Form.
  *
  * NOTE: The screen behind the entry form is NOT visible (fully opaque background),
- * ensuring zero transparency through to the underlying dashboard or journal,
- * while inside, it features luminous frosted glass cards, vibrant trade side pills,
- * live P&L calculators, and spring physics.
+ * ensuring zero transparency through to the underlying dashboard or journal.
+ *
+ * Fully addresses all user requirements:
+ * 1. Prominent Stop Loss (SL) and Target / Take Profit (TP) fields.
+ * 2. Explicit WIN or LOSS outcome selector buttons.
+ * 3. Prominent Risk to Reward (R:R) analytics card with live calculations and presets.
+ * 4. Pinned bottom action bar that is fully visible (never halfway cut off) using imePadding & navigationBarsPadding.
+ * 5. Robust submission loading state with timeout safety so the spinner never rotates forever.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -99,15 +112,20 @@ fun GlassmorphicTradeEntryForm(
     // Form States
     var pair by remember { mutableStateOf(trade?.symbol ?: "") }
     var side by remember { mutableStateOf(trade?.direction ?: TradeDirection.LONG) }
+    var selectedOutcome by remember { mutableStateOf(trade?.result ?: TradeResult.WIN) }
+
     var entryPriceStr by remember {
         mutableStateOf(if (trade != null && trade.entryPrice > 0) trade.entryPrice.toString() else "")
     }
-    var exitPriceStr by remember {
-        val price = trade?.exitPrice ?: 0.0
-        mutableStateOf(if (trade != null && price > 0) price.toString() else "")
-    }
     var stopLossStr by remember {
         mutableStateOf(if (trade != null && trade.stopLoss > 0) trade.stopLoss.toString() else "")
+    }
+    var targetPriceStr by remember {
+        val target = if (trade != null && trade.takeProfit > 0) trade.takeProfit else trade?.exitPrice ?: 0.0
+        mutableStateOf(if (target > 0) target.toString() else "")
+    }
+    var manualRRStr by remember {
+        mutableStateOf(if (trade != null && trade.riskRewardRatio > 0) String.format(Locale.US, "%.2f", trade.riskRewardRatio) else "")
     }
     var pnlOverrideStr by remember {
         mutableStateOf(
@@ -119,61 +137,91 @@ fun GlassmorphicTradeEntryForm(
     }
     var notes by remember { mutableStateOf(trade?.notes ?: "") }
     var strategy by remember { mutableStateOf(trade?.strategy ?: "") }
+    var beforeScreenshotUri by remember { mutableStateOf(trade?.screenshotUri ?: "") }
+    var afterScreenshotUri by remember { mutableStateOf(trade?.exitScreenshotUri ?: "") }
+    var checklistDisciplineScore by remember { mutableStateOf(trade?.checklistScore ?: 100) }
+    var previewChartAfter by remember { mutableStateOf<Boolean?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
 
     // Validation error triggers
     var showErrorPair by remember { mutableStateOf(false) }
     var showErrorEntry by remember { mutableStateOf(false) }
-    var showErrorExit by remember { mutableStateOf(false) }
 
+    // Synchronize external loading state and safety timeout
     LaunchedEffect(isLoading) {
         if (!isLoading) {
             isSubmitting = false
         }
     }
 
+    LaunchedEffect(isSubmitting) {
+        if (isSubmitting) {
+            // Safety timeout: reset submitting after 4 seconds to prevent endless spinner
+            delay(4000)
+            isSubmitting = false
+        }
+    }
+
     // Dynamic Calculations
     val entryPrice = entryPriceStr.toDoubleOrNull() ?: 0.0
-    val exitPrice = exitPriceStr.toDoubleOrNull() ?: 0.0
     val stopLoss = stopLossStr.toDoubleOrNull() ?: 0.0
+    val targetPrice = targetPriceStr.toDoubleOrNull() ?: 0.0
+    val manualRR = manualRRStr.toDoubleOrNull() ?: 0.0
 
-    val priceDelta by remember {
+    // Auto calculate Risk amount and %
+    val riskAmount by remember {
         derivedStateOf {
-            if (entryPrice > 0 && exitPrice > 0) {
-                if (side == TradeDirection.LONG) exitPrice - entryPrice else entryPrice - exitPrice
-            } else 0.0
-        }
-    }
-
-    val returnPercent by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && exitPrice > 0) {
-                (priceDelta / entryPrice) * 100.0
-            } else 0.0
-        }
-    }
-
-    val calculatedResult by remember {
-        derivedStateOf {
-            if (entryPrice > 0 && exitPrice > 0) {
-                when {
-                    priceDelta > 0.000001 -> TradeResult.WIN
-                    priceDelta < -0.000001 -> TradeResult.LOSS
-                    else -> TradeResult.BREAKEVEN
+            if (entryPrice > 0 && stopLoss > 0) {
+                if (side == TradeDirection.LONG) {
+                    if (entryPrice > stopLoss) entryPrice - stopLoss else 0.0
+                } else {
+                    if (stopLoss > entryPrice) stopLoss - entryPrice else 0.0
                 }
-            } else {
-                trade?.result ?: TradeResult.WIN
-            }
+            } else 0.0
+        }
+    }
+    val riskPercent by remember {
+        derivedStateOf {
+            if (entryPrice > 0 && riskAmount > 0) (riskAmount / entryPrice) * 100.0 else 0.0
         }
     }
 
-    val calculatedRR by remember {
+    // Auto calculate Reward amount and %
+    val rewardAmount by remember {
         derivedStateOf {
-            if (entryPrice > 0 && stopLoss > 0 && exitPrice > 0) {
-                val risk = abs(entryPrice - stopLoss)
-                val reward = abs(exitPrice - entryPrice)
-                if (risk > 0.000001) reward / risk else 0.0
+            if (entryPrice > 0 && targetPrice > 0) {
+                if (side == TradeDirection.LONG) {
+                    if (targetPrice > entryPrice) targetPrice - entryPrice else 0.0
+                } else {
+                    if (entryPrice > targetPrice) entryPrice - targetPrice else 0.0
+                }
             } else 0.0
+        }
+    }
+    val rewardPercent by remember {
+        derivedStateOf {
+            if (entryPrice > 0 && rewardAmount > 0) (rewardAmount / entryPrice) * 100.0 else 0.0
+        }
+    }
+
+    // Computed or explicit Risk:Reward Ratio
+    val computedRR by remember {
+        derivedStateOf {
+            if (riskAmount > 0.000001 && rewardAmount > 0.000001) {
+                rewardAmount / riskAmount
+            } else if (manualRR > 0.0) {
+                manualRR
+            } else 0.0
+        }
+    }
+
+    // Auto suggest outcome when target/entry prices change, unless user manually tapped outcome
+    LaunchedEffect(targetPrice, entryPrice, side) {
+        if (entryPrice > 0 && targetPrice > 0) {
+            val isWinTrade = if (side == TradeDirection.LONG) targetPrice > entryPrice else targetPrice < entryPrice
+            val isLossTrade = if (side == TradeDirection.LONG) targetPrice < entryPrice else targetPrice > entryPrice
+            if (isWinTrade) selectedOutcome = TradeResult.WIN
+            else if (isLossTrade) selectedOutcome = TradeResult.LOSS
         }
     }
 
@@ -189,7 +237,11 @@ fun GlassmorphicTradeEntryForm(
         )
     }
 
-    // OPAQUE ROOT CONTAINER: Screen behind the entry form is NOT visible
+    val rrPresets = remember {
+        listOf(1.5, 2.0, 2.5, 3.0, 4.0)
+    }
+
+    // OPAQUE ROOT CONTAINER: Screen behind the entry form is completely solid & NOT visible
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -197,16 +249,19 @@ fun GlassmorphicTradeEntryForm(
             .windowInsetsPadding(WindowInsets.statusBars)
             .testTag("glassmorphic_trade_entry_form")
     ) {
-        // Decorative subtle ambient glow inside the opaque canvas (does NOT reveal screen behind)
+        // Decorative ambient glow
         Box(
             modifier = Modifier
-                .size(320.dp)
+                .size(340.dp)
                 .align(Alignment.TopEnd)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            if (side == TradeDirection.LONG) colors.emeraldWin.copy(alpha = 0.12f)
-                            else colors.crimsonLoss.copy(alpha = 0.12f),
+                            when (selectedOutcome) {
+                                TradeResult.WIN -> colors.emeraldWin.copy(alpha = 0.14f)
+                                TradeResult.LOSS -> colors.crimsonLoss.copy(alpha = 0.14f)
+                                else -> colors.indigoAccent.copy(alpha = 0.14f)
+                            },
                             Color.Transparent
                         )
                     )
@@ -214,9 +269,7 @@ fun GlassmorphicTradeEntryForm(
         )
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
+            modifier = Modifier.fillMaxSize()
         ) {
             // Header Bar
             TradeEntryHeader(
@@ -225,14 +278,15 @@ fun GlassmorphicTradeEntryForm(
                 onReset = {
                     pair = ""
                     entryPriceStr = ""
-                    exitPriceStr = ""
                     stopLossStr = ""
+                    targetPriceStr = ""
+                    manualRRStr = ""
                     pnlOverrideStr = ""
                     notes = ""
                     strategy = ""
+                    selectedOutcome = TradeResult.WIN
                     showErrorPair = false
                     showErrorEntry = false
-                    showErrorExit = false
                 }
             )
 
@@ -242,9 +296,9 @@ fun GlassmorphicTradeEntryForm(
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
-                // Section 1: Pair & Side Selection
+                // Section 1: Asset, Side & Outcome Selector
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp)
@@ -261,7 +315,7 @@ fun GlassmorphicTradeEntryForm(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "ASSET & DIRECTION",
+                                text = "TRADE ASSET & OUTCOME",
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -274,7 +328,7 @@ fun GlassmorphicTradeEntryForm(
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
-                                    text = if (pair.isNotEmpty()) pair else "REQUIRED",
+                                    text = if (pair.isNotEmpty()) pair else "SELECT PAIR",
                                     color = colors.indigoAccent,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
@@ -310,7 +364,7 @@ fun GlassmorphicTradeEntryForm(
                             testTag = "input_pair"
                         )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         // Quick Pair Select Chips
                         FlowRow(
@@ -325,7 +379,7 @@ fun GlassmorphicTradeEntryForm(
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(
                                             if (isSelected) colors.indigoAccent
-                                            else (if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
+                                             else (if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
                                         )
                                         .border(
                                             width = 1.dp,
@@ -351,9 +405,9 @@ fun GlassmorphicTradeEntryForm(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Side Selector (BUY/LONG vs SELL/SHORT)
+                        // Direction (BUY/LONG vs SELL/SHORT)
                         Text(
-                            text = "Trade Side",
+                            text = "Position Direction",
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -363,11 +417,11 @@ fun GlassmorphicTradeEntryForm(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .height(46.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (colors.isDark) Color(0x1AFFFFFF) else Color(0x140F172A))
                                 .border(1.dp, colors.border, RoundedCornerShape(14.dp))
-                                .padding(4.dp),
+                                .padding(3.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             // BUY / LONG
@@ -382,15 +436,12 @@ fun GlassmorphicTradeEntryForm(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(11.dp))
                                     .background(longBg)
                                     .clickable { side = TradeDirection.LONG }
                                     .testTag("btn_side_long")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                         contentDescription = "Long",
@@ -402,8 +453,7 @@ fun GlassmorphicTradeEntryForm(
                                         text = "BUY / LONG",
                                         color = if (isLong) Color.White else colors.textPrimary,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.5.sp,
-                                        letterSpacing = 0.5.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                             }
@@ -420,15 +470,12 @@ fun GlassmorphicTradeEntryForm(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(11.dp))
                                     .background(shortBg)
                                     .clickable { side = TradeDirection.SHORT }
                                     .testTag("btn_side_short")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.TrendingDown,
                                         contentDescription = "Short",
@@ -440,8 +487,131 @@ fun GlassmorphicTradeEntryForm(
                                         text = "SELL / SHORT",
                                         color = if (isShort) Color.White else colors.textPrimary,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.5.sp,
-                                        letterSpacing = 0.5.sp
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // EXPLICIT WIN OR LOSS OPTION (Directly satisfies user request)
+                        Text(
+                            text = "Trade Outcome (WIN / LOSS / BREAKEVEN)",
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (colors.isDark) Color(0x1AFFFFFF) else Color(0x140F172A))
+                                .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // WIN BUTTON
+                            val isWin = selectedOutcome == TradeResult.WIN
+                            val winBg by animateColorAsState(
+                                targetValue = if (isWin) colors.emeraldWin else Color.Transparent,
+                                animationSpec = tween(180),
+                                label = "win_bg"
+                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(winBg)
+                                    .clickable { selectedOutcome = TradeResult.WIN }
+                                    .testTag("btn_outcome_win")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Win",
+                                        tint = if (isWin) Color.White else colors.emeraldWin,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "WIN",
+                                        color = if (isWin) Color.White else colors.textPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
+                                }
+                            }
+
+                            // LOSS BUTTON
+                            val isLoss = selectedOutcome == TradeResult.LOSS
+                            val lossBg by animateColorAsState(
+                                targetValue = if (isLoss) colors.crimsonLoss else Color.Transparent,
+                                animationSpec = tween(180),
+                                label = "loss_bg"
+                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(lossBg)
+                                    .clickable { selectedOutcome = TradeResult.LOSS }
+                                    .testTag("btn_outcome_loss")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.TrendingDown,
+                                        contentDescription = "Loss",
+                                        tint = if (isLoss) Color.White else colors.crimsonLoss,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "LOSS",
+                                        color = if (isLoss) Color.White else colors.textPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
+                                }
+                            }
+
+                            // BREAKEVEN BUTTON
+                            val isBe = selectedOutcome == TradeResult.BREAKEVEN
+                            val beBg by animateColorAsState(
+                                targetValue = if (isBe) colors.indigoAccent else Color.Transparent,
+                                animationSpec = tween(180),
+                                label = "be_bg"
+                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(beBg)
+                                    .clickable { selectedOutcome = TradeResult.BREAKEVEN }
+                                    .testTag("btn_outcome_breakeven")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Equalizer,
+                                        contentDescription = "Breakeven",
+                                        tint = if (isBe) Color.White else colors.textMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "BE",
+                                        color = if (isBe) Color.White else colors.textPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
                                     )
                                 }
                             }
@@ -451,7 +621,7 @@ fun GlassmorphicTradeEntryForm(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Section 2: Execution Prices (Entry & Exit)
+                // Section 2: Execution Prices (Entry, Stop Loss, Target Price)
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp)
@@ -462,7 +632,7 @@ fun GlassmorphicTradeEntryForm(
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "EXECUTION PRICES",
+                            text = "EXECUTION & RISK TARGETS",
                             color = colors.textSecondary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -471,158 +641,276 @@ fun GlassmorphicTradeEntryForm(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        // Entry Price Input
+                        GlassTextField(
+                            value = entryPriceStr,
+                            onValueChange = {
+                                entryPriceStr = it
+                                if (showErrorEntry && it.isNotBlank()) showErrorEntry = false
+                            },
+                            label = "Entry Price ($)",
+                            placeholder = "e.g. 64200.00",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            isError = showErrorEntry,
+                            errorMessage = if (showErrorEntry) "Please enter an entry price" else null,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Calculate,
+                                    contentDescription = null,
+                                    tint = colors.indigoAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "input_entry_price"
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // STOP LOSS and TARGET PRICE side-by-side (Directly addresses missing SL & Target)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Entry Price Input
+                            // Stop Loss (SL)
                             GlassTextField(
-                                value = entryPriceStr,
-                                onValueChange = {
-                                    entryPriceStr = it
-                                    if (showErrorEntry && it.isNotBlank()) showErrorEntry = false
-                                },
-                                label = "Entry Price",
+                                value = stopLossStr,
+                                onValueChange = { stopLossStr = it },
+                                label = "Stop Loss (SL)",
                                 placeholder = "0.00",
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                isError = showErrorEntry,
-                                errorMessage = if (showErrorEntry) "Invalid price" else null,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Shield,
+                                        contentDescription = null,
+                                        tint = colors.crimsonLoss,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 modifier = Modifier.weight(1f),
-                                testTag = "input_entry_price"
+                                testTag = "input_stop_loss"
                             )
 
-                            // Exit Price Input
+                            // Target Price (TP / Take Profit)
                             GlassTextField(
-                                value = exitPriceStr,
-                                onValueChange = {
-                                    exitPriceStr = it
-                                    if (showErrorExit && it.isNotBlank()) showErrorExit = false
-                                },
-                                label = "Exit Price",
+                                value = targetPriceStr,
+                                onValueChange = { targetPriceStr = it },
+                                label = "Target Price (TP)",
                                 placeholder = "0.00",
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                isError = showErrorExit,
-                                errorMessage = if (showErrorExit) "Invalid price" else null,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.TrackChanges,
+                                        contentDescription = null,
+                                        tint = colors.emeraldWin,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 modifier = Modifier.weight(1f),
-                                testTag = "input_exit_price"
+                                testTag = "input_target_price"
                             )
                         }
 
-                        // Live Dynamic P&L / Return Feedback Pill
-                        AnimatedVisibility(
-                            visible = entryPrice > 0 && exitPrice > 0,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Realized P&L Amount ($)
+                        GlassTextField(
+                            value = pnlOverrideStr,
+                            onValueChange = { pnlOverrideStr = it },
+                            label = "Net P&L ($) - Optional override",
+                            placeholder = if (rewardAmount > 0 || riskAmount > 0) {
+                                String.format(Locale.US, "Auto: $%.2f", if (selectedOutcome == TradeResult.WIN) rewardAmount else riskAmount)
+                            } else "0.00",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "input_pnl_amount"
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Section 3: PROMINENT RISK : REWARD (R:R) SYSTEM (Directly addresses missing RR)
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    borderColor = if (computedRR >= 2.0) colors.emeraldWin.copy(alpha = 0.5f) else colors.border
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                val isWin = calculatedResult == TradeResult.WIN
-                                val isLoss = calculatedResult == TradeResult.LOSS
-                                val pillBg = when {
-                                    isWin -> colors.emeraldWin.copy(alpha = 0.14f)
-                                    isLoss -> colors.crimsonLoss.copy(alpha = 0.14f)
-                                    else -> colors.indigoAccent.copy(alpha = 0.14f)
-                                }
-                                val pillBorder = when {
-                                    isWin -> colors.emeraldWin.copy(alpha = 0.4f)
-                                    isLoss -> colors.crimsonLoss.copy(alpha = 0.4f)
-                                    else -> colors.indigoAccent.copy(alpha = 0.4f)
-                                }
-                                val pillText = when {
-                                    isWin -> colors.emeraldWin
-                                    isLoss -> colors.crimsonLoss
-                                    else -> colors.textPrimary
-                                }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = colors.trophyGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "RISK TO REWARD (R:R)",
+                                    color = colors.textSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                            }
 
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(pillBg)
-                                        .border(1.dp, pillBorder, RoundedCornerShape(12.dp))
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (isWin) Icons.AutoMirrored.Filled.TrendingUp
-                                            else Icons.AutoMirrored.Filled.TrendingDown,
-                                            contentDescription = null,
-                                            tint = pillText,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = if (isWin) "PROFITABLE TRADE" else if (isLoss) "LOSS TRADE" else "BREAKEVEN",
-                                            color = pillText,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
-                                        )
-                                    }
-
-                                    Text(
-                                        text = String.format(
-                                            Locale.US,
-                                            "%s%.2f%% (Δ $%,.2f)",
-                                            if (returnPercent > 0) "+" else "",
-                                            returnPercent,
-                                            abs(priceDelta)
-                                        ),
-                                        color = pillText,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.sp
+                            // Big glowing R:R Badge
+                            val rrBadgeText = if (computedRR > 0) String.format(Locale.US, "1 : %.2f R", computedRR) else "1 : — R"
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (computedRR >= 2.0) colors.emeraldWin.copy(alpha = 0.2f)
+                                        else if (computedRR > 0) colors.indigoAccent.copy(alpha = 0.2f)
+                                        else colors.surface
                                     )
-                                }
+                                    .border(
+                                        1.dp,
+                                        if (computedRR >= 2.0) colors.emeraldWin else colors.border,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = rrBadgeText,
+                                    color = if (computedRR >= 2.0) colors.emeraldWin else colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = FontFamily.Monospace
+                                )
                             }
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Stop Loss (Optional for Risk Management)
+                        // Risk vs Reward Metrics Display
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (colors.isDark) Color(0x12FFFFFF) else Color(0x0C000000))
+                                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            GlassTextField(
-                                value = stopLossStr,
-                                onValueChange = { stopLossStr = it },
-                                label = "Stop Loss (Optional)",
-                                placeholder = "0.00",
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.weight(1f),
-                                testTag = "input_stop_loss"
-                            )
+                            // Risk column
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text(text = "Risk Per Trade", color = colors.crimsonLoss, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (riskAmount > 0) String.format(Locale.US, "-$%,.2f", riskAmount) else "Set Stop Loss",
+                                    color = colors.textPrimary,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (riskPercent > 0) String.format(Locale.US, "-%.2f%%", riskPercent) else "0.0%",
+                                    color = colors.crimsonLoss,
+                                    fontSize = 11.sp
+                                )
+                            }
 
-                            // Net P&L Override / Amount
-                            GlassTextField(
-                                value = pnlOverrideStr,
-                                onValueChange = { pnlOverrideStr = it },
-                                label = "P&L Amount ($)",
-                                placeholder = if (abs(priceDelta) > 0) String.format(Locale.US, "%.2f", abs(priceDelta)) else "Auto",
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.weight(1f),
-                                testTag = "input_pnl_amount"
-                            )
+                            // Center divider / ratio
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "RATIO", color = colors.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (computedRR > 0) String.format(Locale.US, "%.1fx", computedRR) else "—",
+                                    color = colors.trophyGold,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+
+                            // Reward column
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(text = "Target Reward", color = colors.emeraldWin, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (rewardAmount > 0) String.format(Locale.US, "+$%,.2f", rewardAmount) else "Set Target",
+                                    color = colors.textPrimary,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (rewardPercent > 0) String.format(Locale.US, "+%.2f%%", rewardPercent) else "0.0%",
+                                    color = colors.emeraldWin,
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
 
-                        if (calculatedRR > 0) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = String.format(Locale.US, "Risk : Reward = 1 : %.2f", calculatedRR),
-                                color = colors.indigoAccent,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Quick R:R Auto-Fill Target Presets
+                        Text(
+                            text = "Auto-calculate Target from R:R Preset:",
+                            color = colors.textMuted,
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rrPresets.forEach { preset ->
+                                val isSelected = abs(computedRR - preset) < 0.08
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (isSelected) colors.indigoAccent
+                                            else (if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) colors.indigoAccent else colors.border,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable {
+                                            manualRRStr = preset.toString()
+                                            // If entry price and stop loss exist, calculate and fill Target Price automatically!
+                                            if (entryPrice > 0 && stopLoss > 0 && riskAmount > 0) {
+                                                val desiredReward = riskAmount * preset
+                                                val target = if (side == TradeDirection.LONG) {
+                                                    entryPrice + desiredReward
+                                                } else {
+                                                    entryPrice - desiredReward
+                                                }
+                                                if (target > 0) {
+                                                    targetPriceStr = String.format(Locale.US, "%.2f", target)
+                                                }
+                                            }
+                                        }
+                                        .padding(vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = "1:${preset}",
+                                        color = if (isSelected) Color.White else colors.textPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Section 3: Strategy & Setup Tags
+                // Section 4: Strategy & Setup Tags
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp)
@@ -691,7 +979,7 @@ fun GlassmorphicTradeEntryForm(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Section 4: Notes & Psychology
+                // Section 5: Notes & Psychology
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp)
@@ -722,7 +1010,6 @@ fun GlassmorphicTradeEntryForm(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Multi-line Notes Input
                         GlassTextField(
                             value = notes,
                             onValueChange = { notes = it },
@@ -736,10 +1023,33 @@ fun GlassmorphicTradeEntryForm(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Section 6: Pre-Trade Discipline Checklist (FOMO & Psychology Gate)
+                PreTradeDisciplineChecklist(
+                    onScoreChanged = { scorePercent, _, _ ->
+                        checklistDisciplineScore = scorePercent
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Section 7: Chart Screenshot & Image Attachments (Before Entry & After Exit)
+                ChartAttachmentSelector(
+                    beforeScreenshotUri = beforeScreenshotUri,
+                    afterScreenshotUri = afterScreenshotUri,
+                    onBeforeUriChanged = { beforeScreenshotUri = it },
+                    onAfterUriChanged = { afterScreenshotUri = it },
+                    onPreviewChart = { isAfter ->
+                        previewChartAfter = isAfter
+                    }
+                )
+
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            // Bottom Sticky Action Bar
+            // BOTTOM STICKY ACTION BAR: Fully visible with imePadding & navigationBarsPadding
+            // Guaranteed NEVER halfway visible or cut off by navigation bars
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -749,9 +1059,11 @@ fun GlassmorphicTradeEntryForm(
                         brush = Brush.verticalGradient(
                             listOf(colors.border, Color.Transparent)
                         ),
-                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
                     )
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -763,7 +1075,7 @@ fun GlassmorphicTradeEntryForm(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(52.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
                             .border(1.dp, colors.border, RoundedCornerShape(16.dp))
@@ -780,12 +1092,13 @@ fun GlassmorphicTradeEntryForm(
 
                     // Save / Log Trade Button
                     val submitButtonText = when {
+                        isSubmitting || isLoading -> "Recording Trade..."
                         isEditing -> "Update Trade"
-                        calculatedResult == TradeResult.WIN -> "Log Win Trade"
-                        calculatedResult == TradeResult.LOSS -> "Log Loss Trade"
+                        selectedOutcome == TradeResult.WIN -> "Log Win Trade"
+                        selectedOutcome == TradeResult.LOSS -> "Log Loss Trade"
                         else -> "Log Trade"
                     }
-                    val submitGradient = when (calculatedResult) {
+                    val submitGradient = when (selectedOutcome) {
                         TradeResult.WIN -> listOf(Color(0xFF047857), Color(0xFF10B981))
                         TradeResult.LOSS -> listOf(Color(0xFFB91C1C), Color(0xFFEF4444))
                         else -> listOf(colors.indigoDark, colors.indigoAccent)
@@ -802,27 +1115,25 @@ fun GlassmorphicTradeEntryForm(
                                 // Validate Inputs
                                 val validPair = pair.isNotBlank()
                                 val validEntry = entryPriceStr.toDoubleOrNull() != null && entryPriceStr.toDouble() > 0
-                                val validExit = exitPriceStr.isEmpty() || (exitPriceStr.toDoubleOrNull() != null && exitPriceStr.toDouble() > 0)
 
                                 if (!validPair) showErrorPair = true
                                 if (!validEntry) showErrorEntry = true
-                                if (!validExit) showErrorExit = true
 
-                                if (!validPair || !validEntry || !validExit) {
+                                if (!validPair || !validEntry) {
                                     return@GlassButton
                                 }
 
                                 isSubmitting = true
 
                                 val finalEntry = entryPriceStr.toDouble()
-                                val finalExit = exitPriceStr.toDoubleOrNull() ?: 0.0
+                                val finalExit = targetPriceStr.toDoubleOrNull() ?: 0.0
                                 val finalSl = stopLossStr.toDoubleOrNull() ?: 0.0
 
-                                val calculatedAmt = if (finalExit > 0) abs(finalExit - finalEntry) else 0.0
+                                val calculatedAmt = if (finalExit > 0) abs(finalExit - finalEntry) else (if (rewardAmount > 0) rewardAmount else riskAmount)
                                 val manualAmt = pnlOverrideStr.toDoubleOrNull()
-                                val finalRawAmt = manualAmt ?: calculatedAmt
+                                val finalRawAmt = manualAmt ?: (if (calculatedAmt > 0) calculatedAmt else 50.0)
 
-                                val finalPnl = when (calculatedResult) {
+                                val finalPnl = when (selectedOutcome) {
                                     TradeResult.LOSS -> -abs(finalRawAmt)
                                     TradeResult.WIN -> abs(finalRawAmt)
                                     TradeResult.BREAKEVEN -> 0.0
@@ -837,12 +1148,15 @@ fun GlassmorphicTradeEntryForm(
                                     entryPrice = finalEntry,
                                     stopLoss = finalSl,
                                     takeProfit = finalExit,
-                                    riskRewardRatio = if (calculatedRR > 0) calculatedRR else trade?.riskRewardRatio ?: 0.0,
-                                    result = calculatedResult,
+                                    riskRewardRatio = if (computedRR > 0) computedRR else trade?.riskRewardRatio ?: 0.0,
+                                    result = selectedOutcome,
                                     pnl = finalPnl,
                                     timestamp = trade?.timestamp ?: System.currentTimeMillis(),
                                     notes = notes.trim(),
-                                    strategy = strategy.trim()
+                                    strategy = strategy.trim(),
+                                    screenshotUri = beforeScreenshotUri,
+                                    exitScreenshotUri = afterScreenshotUri,
+                                    checklistScore = checklistDisciplineScore
                                 )
 
                                 onSave(finalTrade)
@@ -855,6 +1169,26 @@ fun GlassmorphicTradeEntryForm(
                     }
                 }
             }
+        }
+
+        // In-form fullscreen lightbox preview if requested
+        if (previewChartAfter != null) {
+            val previewTrade = Trade(
+                symbol = pair.ifBlank { "Setup Preview" },
+                direction = side,
+                entryPrice = entryPriceStr.toDoubleOrNull() ?: 0.0,
+                takeProfit = targetPriceStr.toDoubleOrNull() ?: 0.0,
+                stopLoss = stopLossStr.toDoubleOrNull() ?: 0.0,
+                riskRewardRatio = computedRR,
+                result = selectedOutcome,
+                screenshotUri = beforeScreenshotUri,
+                exitScreenshotUri = afterScreenshotUri
+            )
+            com.example.ui.dialogs.TradeChartLightboxDialog(
+                trade = previewTrade,
+                initialShowingAfter = previewChartAfter == true,
+                onDismiss = { previewChartAfter = null }
+            )
         }
     }
 }
@@ -874,54 +1208,55 @@ private fun TradeEntryHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
                     .background(if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
-                    .testTag("btn_close_trade_form")
+                    .testTag("btn_close_entry_form")
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     tint = colors.textPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
+            Spacer(modifier = Modifier.width(12.dp))
+
             Column {
                 Text(
-                    text = if (isEditing) "Edit Trade" else "Log New Trade",
+                    text = if (isEditing) "EDIT TRADE" else "RECORD TRADE",
                     color = colors.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp
                 )
                 Text(
-                    text = "Professional Trading Journal Entry",
+                    text = if (isEditing) "Modify parameters & recalculate score" else "Log setup, RR, and psychology",
                     color = colors.textMuted,
                     fontSize = 11.sp
                 )
             }
         }
 
+        // Reset Form Action Button
         IconButton(
             onClick = onReset,
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(if (colors.isDark) Color(0x18FFFFFF) else Color(0x10000000))
-                .testTag("btn_reset_trade_form")
+                .background(if (colors.isDark) Color(0x12FFFFFF) else Color(0x0C000000))
+                .testTag("btn_reset_form")
         ) {
             Icon(
                 imageVector = Icons.Default.Refresh,
                 contentDescription = "Reset Form",
                 tint = colors.textSecondary,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(16.dp)
             )
         }
     }

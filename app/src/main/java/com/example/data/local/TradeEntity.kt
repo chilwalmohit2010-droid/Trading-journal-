@@ -21,7 +21,12 @@ data class TradeEntity(
     val pnl: Double,
     val timestamp: Long,
     val notes: String,
-    val strategy: String
+    val strategy: String,
+    val screenshotUri: String = "",
+    val exitScreenshotUri: String = "",
+    val emotion: String = "",
+    val session: String = "",
+    val checklistScore: Int = 0
 ) {
     fun toTrade(): Trade {
         val parsedResult = try { TradeResult.valueOf(result) } catch (e: Exception) { TradeResult.WIN }
@@ -44,7 +49,12 @@ data class TradeEntity(
             pnl = normalizedPnl,
             timestamp = timestamp,
             notes = notes,
-            strategy = strategy
+            strategy = strategy,
+            screenshotUri = screenshotUri,
+            exitScreenshotUri = exitScreenshotUri,
+            emotion = emotion,
+            session = session,
+            checklistScore = checklistScore
         )
     }
 
@@ -69,7 +79,12 @@ data class TradeEntity(
                 pnl = normalizedPnl,
                 timestamp = trade.timestamp,
                 notes = trade.notes,
-                strategy = trade.strategy
+                strategy = trade.strategy,
+                screenshotUri = trade.screenshotUri,
+                exitScreenshotUri = trade.exitScreenshotUri,
+                emotion = trade.emotion,
+                session = trade.session,
+                checklistScore = trade.checklistScore
             )
         }
     }

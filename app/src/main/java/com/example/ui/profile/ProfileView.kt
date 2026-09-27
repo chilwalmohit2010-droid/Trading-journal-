@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Shield
@@ -76,6 +77,7 @@ fun ProfileView(
     onEditProfileClick: () -> Unit,
     onPhotoSelected: (ByteArray) -> Unit,
     onLogout: () -> Unit,
+    onExportCsvClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = LiquidTheme.colors
@@ -369,6 +371,69 @@ fun ProfileView(
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        // Data Management: CSV Export Card
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            onClick = onExportCsvClick
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(colors.indigoAccent.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FileDownload,
+                            contentDescription = "Export CSV",
+                            tint = colors.indigoAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Export Trade History",
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "${trades.size} trades logged • CSV format",
+                            color = colors.textMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surface)
+                        .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = "EXPORT",
+                        color = colors.indigoAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
         // Logout Button
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
@@ -396,6 +461,15 @@ fun ProfileView(
                     fontSize = 14.sp
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            com.example.ui.components.CoolCreditBadge()
         }
 
         Spacer(modifier = Modifier.height(80.dp))

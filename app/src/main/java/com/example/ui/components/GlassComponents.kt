@@ -107,13 +107,16 @@ fun GlassCard(
         )
     } else Modifier
 
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            borderColor.copy(alpha = if (LiquidTheme.colors.isDark) 0.6f else 0.8f),
-            borderColor.copy(alpha = if (LiquidTheme.colors.isDark) 0.15f else 0.3f),
-            Color.White.copy(alpha = if (LiquidTheme.colors.isDark) 0.05f else 0.3f)
+    val isDark = LiquidTheme.colors.isDark
+    val borderBrush = remember(borderColor, isDark) {
+        Brush.linearGradient(
+            colors = listOf(
+                borderColor.copy(alpha = if (isDark) 0.6f else 0.8f),
+                borderColor.copy(alpha = if (isDark) 0.15f else 0.3f),
+                Color.White.copy(alpha = if (isDark) 0.05f else 0.3f)
+            )
         )
-    )
+    }
 
     Box(
         modifier = modifier

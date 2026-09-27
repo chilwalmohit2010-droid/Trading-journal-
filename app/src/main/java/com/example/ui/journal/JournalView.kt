@@ -26,13 +26,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -45,27 +47,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
 import com.example.data.model.Trade
 import com.example.data.model.TradeDirection
 import com.example.data.model.TradeResult
 import com.example.ui.TradeFilter
+import com.example.ui.calendar.TradingCalendarView
 import com.example.ui.components.CurrencyPnlText
 import com.example.ui.components.DirectionBadge
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassTextField
 import com.example.ui.components.ResultBadge
+import com.example.ui.dialogs.TradeChartLightboxDialog
 import com.example.ui.theme.LiquidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.abs
 
+private val journalDateFormat = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.US).apply {
+    timeZone = TimeZone.getDefault()
+}
+
+/**
+ * Journal View with dual display modes:
+ * 1. Chronological Trade List with Chart Thumbnails & Discipline execution badges
+ * 2. Interactive Monthly Calendar & Daily Heatmap (Green/Red days & daily P&L)
+ */
 @Composable
 fun JournalView(
     trades: List<Trade>,
@@ -75,26 +91,34 @@ fun JournalView(
     onSearchChange: (String) -> Unit,
     onAddTradeClick: () -> Unit,
     onEditTradeClick: (Trade) -> Unit,
-    onDeleteTradeClick: (String) -> Unit
+    onDeleteTradeClick: (String) -> Unit,
+    onExportCsvClick: () -> Unit = {}
 ) {
     val colors = LiquidTheme.colors
+    var isCalendarMode by remember { mutableStateOf(false) }
     var tradeToDeleteId by remember { mutableStateOf<String?>(null) }
 
-    val filteredTrades = trades.filter { trade ->
-        val matchesFilter = when (selectedFilter) {
-            TradeFilter.ALL -> true
-            TradeFilter.WINS -> trade.result == TradeResult.WIN
-            TradeFilter.LOSSES -> trade.result == TradeResult.LOSS
-            TradeFilter.LONGS -> trade.direction == TradeDirection.LONG
-            TradeFilter.SHORTS -> trade.direction == TradeDirection.SHORT
+    // Lightbox viewer state
+    var lightboxTrade by remember { mutableStateOf<Trade?>(null) }
+    var lightboxShowAfter by remember { mutableStateOf(false) }
+
+    val filteredTrades = remember(trades, selectedFilter, searchQuery) {
+        trades.filter { trade ->
+            val matchesFilter = when (selectedFilter) {
+                TradeFilter.ALL -> true
+                TradeFilter.WINS -> trade.result == TradeResult.WIN
+                TradeFilter.LOSSES -> trade.result == TradeResult.LOSS
+                TradeFilter.LONGS -> trade.direction == TradeDirection.LONG
+                TradeFilter.SHORTS -> trade.direction == TradeDirection.SHORT
+            }
+            val query = searchQuery.trim().lowercase()
+            val matchesSearch = if (query.isEmpty()) true else {
+                trade.symbol.lowercase().contains(query) ||
+                        trade.strategy.lowercase().contains(query) ||
+                        trade.notes.lowercase().contains(query)
+            }
+            matchesFilter && matchesSearch
         }
-        val query = searchQuery.trim().lowercase()
-        val matchesSearch = if (query.isEmpty()) true else {
-            trade.symbol.lowercase().contains(query) ||
-                    trade.strategy.lowercase().contains(query) ||
-                    trade.notes.lowercase().contains(query)
-        }
-        matchesFilter && matchesSearch
     }
 
     Box(
@@ -109,110 +133,194 @@ fun JournalView(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Search Bar
-            GlassTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                label = "Search journal",
-                placeholder = "Search by symbol, setup, or notes...",
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = colors.textMuted,
-                        modifier = Modifier.size(18.dp)
+            // Top Bar: View Mode Switcher [ List | 📅 Calendar Heatmap ] & Export CSV
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Segmented Toggle
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (colors.isDark) Color(0x18FFFFFF) else Color(0x0C000000))
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    JournalTogglePill(
+                        label = "List Log",
+                        icon = Icons.Default.FormatListBulleted,
+                        isSelected = !isCalendarMode,
+                        onClick = { isCalendarMode = false },
+                        testTag = "btn_journal_list_view"
                     )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { onSearchChange("") }) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Clear",
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                },
-                testTag = "journal_search_input"
-            )
+                    JournalTogglePill(
+                        label = "Calendar Heatmap",
+                        icon = Icons.Default.CalendarMonth,
+                        isSelected = isCalendarMode,
+                        onClick = { isCalendarMode = true },
+                        testTag = "btn_journal_calendar_view"
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Filter Chips
-            FilterChipsRow(
-                selectedFilter = selectedFilter,
-                onFilterSelect = onFilterSelect,
-                totalCount = trades.size,
-                winsCount = trades.count { it.result == TradeResult.WIN },
-                lossesCount = trades.count { it.result == TradeResult.LOSS }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Trades List or Empty State
-            if (filteredTrades.isEmpty()) {
+                // Export CSV Button
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.card)
+                        .border(1.dp, colors.indigoAccent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .clickable(onClick = onExportCsvClick)
+                        .testTag("btn_export_csv")
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(if (colors.isDark) Color(0x1A6366F1) else Color(0x1A4F46E5))
-                        ) {
+                    Icon(
+                        imageVector = Icons.Default.FileDownload,
+                        contentDescription = "Export CSV",
+                        tint = colors.indigoAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (isCalendarMode) {
+                // 📅 Trading Calendar & Daily Heatmap Mode
+                TradingCalendarView(
+                    trades = trades,
+                    onTradeClick = onEditTradeClick,
+                    onTradeChartClick = { trade ->
+                        lightboxTrade = trade
+                        lightboxShowAfter = trade.exitScreenshotUri.isNotBlank()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                // 📋 Standard Chronological List Mode with Search & Filter
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchChange,
+                        label = "Search journal",
+                        placeholder = "Search by symbol, setup, or notes...",
+                        leadingIcon = {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ShowChart,
-                                contentDescription = null,
-                                tint = colors.indigoAccent,
-                                modifier = Modifier.size(28.dp)
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchChange("") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear",
+                                        tint = colors.textMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        testTag = "journal_search_input"
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Filter Chips
+                FilterChipsRow(
+                    selectedFilter = selectedFilter,
+                    onFilterSelect = onFilterSelect,
+                    totalCount = trades.size,
+                    winsCount = trades.count { it.result == TradeResult.WIN },
+                    lossesCount = trades.count { it.result == TradeResult.LOSS }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (filteredTrades.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(if (colors.isDark) Color(0x1A6366F1) else Color(0x1A4F46E5))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ShowChart,
+                                    contentDescription = null,
+                                    tint = colors.indigoAccent,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (trades.isEmpty()) "No trades logged yet" else "No trades match filters",
+                                color = colors.textPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (trades.isEmpty()) "Tap the + button below to log your first trade." else "Try clearing your search query or filter.",
+                                color = colors.textMuted,
+                                fontSize = 13.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (trades.isEmpty()) "No trades logged yet" else "No trades match filters",
-                            color = colors.textPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (trades.isEmpty()) "Tap the + button below to log your first trade." else "Try clearing your search query or filter.",
-                            color = colors.textMuted,
-                            fontSize = 13.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
                     }
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(bottom = 76.dp)
-                        .testTag("journal_trades_list")
-                ) {
-                    items(filteredTrades, key = { it.id }) { trade ->
-                        TradeItemCard(
-                            trade = trade,
-                            onEdit = { onEditTradeClick(trade) },
-                            onDelete = { tradeToDeleteId = trade.id },
-                            modifier = Modifier.animateItem()
-                        )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(bottom = 76.dp)
+                            .testTag("journal_trades_list")
+                    ) {
+                        items(filteredTrades, key = { it.id }) { trade ->
+                            TradeItemCard(
+                                trade = trade,
+                                onEdit = { onEditTradeClick(trade) },
+                                onDelete = { tradeToDeleteId = trade.id },
+                                onViewChart = { isAfter ->
+                                    lightboxTrade = trade
+                                    lightboxShowAfter = isAfter
+                                },
+                                modifier = Modifier.animateItem()
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // Fullscreen Zoomable Lightbox
+    if (lightboxTrade != null) {
+        TradeChartLightboxDialog(
+            trade = lightboxTrade!!,
+            initialShowingAfter = lightboxShowAfter,
+            onDismiss = { lightboxTrade = null }
+        )
     }
 
     // Delete Confirmation Dialog
@@ -246,6 +354,42 @@ fun JournalView(
             containerColor = colors.surface,
             shape = RoundedCornerShape(20.dp)
         )
+    }
+}
+
+@Composable
+private fun JournalTogglePill(
+    label: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    val colors = LiquidTheme.colors
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (isSelected) colors.indigoAccent else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .testTag(testTag)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) Color.White else colors.textMuted,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                color = if (isSelected) Color.White else colors.textMuted,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 11.5.sp
+            )
+        }
     }
 }
 
@@ -352,20 +496,15 @@ private fun TradeItemCard(
     trade: Trade,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onViewChart: (isAfter: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LiquidTheme.colors
-    val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.US) }
-    val formattedDate = remember(trade.timestamp) { dateFormat.format(Date(trade.timestamp)) }
+    val formattedDate = remember(trade.timestamp) { journalDateFormat.format(Date(trade.timestamp)) }
 
     val isLoss = trade.result == TradeResult.LOSS || trade.pnl < -0.0001
     val isWin = trade.result == TradeResult.WIN || trade.pnl > 0.0001
-    val displayPnl = when (trade.result) {
-        TradeResult.LOSS -> -abs(trade.pnl)
-        TradeResult.WIN -> abs(trade.pnl)
-        TradeResult.BREAKEVEN -> 0.0
-        TradeResult.OPEN -> trade.pnl
-    }
+    val displayPnl = trade.effectivePnl
 
     val cardBorder = when {
         isLoss -> colors.crimsonLoss.copy(alpha = 0.55f)
@@ -387,11 +526,11 @@ private fun TradeItemCard(
         glowColor = cardGlow
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            // Left visual accent strip for instant trade outcome identification
+            // Left visual accent strip
             Box(
                 modifier = Modifier
                     .width(5.dp)
-                    .height(130.dp)
+                    .height(145.dp)
                     .background(
                         when {
                             isLoss -> colors.crimsonLoss
@@ -404,7 +543,7 @@ private fun TradeItemCard(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
                 // Top Row: Symbol, Badges, and PnL
                 Row(
@@ -417,7 +556,7 @@ private fun TradeItemCard(
                             text = trade.symbol,
                             color = colors.textPrimary,
                             fontWeight = FontWeight.Black,
-                            fontSize = 17.sp
+                            fontSize = 16.sp
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         DirectionBadge(direction = trade.direction)
@@ -427,29 +566,28 @@ private fun TradeItemCard(
 
                     CurrencyPnlText(
                         amount = displayPnl,
-                        fontSize = 17
+                        fontSize = 16
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // Metrics Row: Entry, SL, TP, R:R
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (colors.isDark) Color(0x0DFFFFFF) else Color(0x0A0F172A))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                MetricItem("Entry", if (trade.entryPrice > 0) String.format(Locale.US, "$%,.2f", trade.entryPrice) else "—")
-                MetricItem("Stop Loss", if (trade.stopLoss > 0) String.format(Locale.US, "$%,.2f", trade.stopLoss) else "—")
-                MetricItem("Take Profit", if (trade.takeProfit > 0) String.format(Locale.US, "$%,.2f", trade.takeProfit) else "—")
-                MetricItem("R:R", if (trade.riskRewardRatio > 0) String.format(Locale.US, "1 : %.2f", trade.riskRewardRatio) else "—")
-            }
+                // Metrics Row: Entry, SL, TP, R:R
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (colors.isDark) Color(0x0DFFFFFF) else Color(0x0A0F172A))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    MetricItem("Entry", if (trade.entryPrice > 0) String.format(Locale.US, "$%,.2f", trade.entryPrice) else "—")
+                    MetricItem("Stop Loss", if (trade.stopLoss > 0) String.format(Locale.US, "$%,.2f", trade.stopLoss) else "—")
+                    MetricItem("Take Profit", if (trade.takeProfit > 0) String.format(Locale.US, "$%,.2f", trade.takeProfit) else "—")
+                    MetricItem("R:R", if (trade.riskRewardRatio > 0) String.format(Locale.US, "1 : %.2f", trade.riskRewardRatio) else "—")
+                }
 
-            // Strategy & Notes
-            if (trade.strategy.isNotEmpty() || trade.notes.isNotEmpty()) {
+                // Strategy & Discipline Badges
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -470,8 +608,29 @@ private fun TradeItemCard(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
+
+                    // Pre-Trade Discipline Badge
+                    if (trade.checklistScore > 0) {
+                        val scoreColor = if (trade.checklistScore >= 80) colors.emeraldWin else if (trade.checklistScore >= 50) Color(0xFFF59E0B) else colors.crimsonLoss
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(scoreColor.copy(alpha = 0.15f))
+                                .border(1.dp, scoreColor.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "✓ ${trade.checklistScore}% Discipline",
+                                color = scoreColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+
                     if (trade.notes.isNotEmpty()) {
                         Text(
                             text = trade.notes,
@@ -482,53 +641,135 @@ private fun TradeItemCard(
                         )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Footer: Date & Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = formattedDate,
-                    color = colors.textMuted,
-                    fontSize = 11.sp
-                )
-
-                Row {
-                    IconButton(
-                        onClick = onEdit,
-                        modifier = Modifier.size(28.dp)
+                // Chart Screenshot Attachments Row (Zoomable Lightbox trigger)
+                val hasBefore = trade.screenshotUri.isNotBlank()
+                val hasAfter = trade.exitScreenshotUri.isNotBlank()
+                if (hasBefore || hasAfter) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit trade",
-                            tint = colors.indigoLight,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        if (hasBefore) {
+                            ChartThumbnailChip(
+                                label = "Setup Chart",
+                                imageUri = trade.screenshotUri,
+                                onClick = { onViewChart(false) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (hasAfter) {
+                            ChartThumbnailChip(
+                                label = "Exit Chart",
+                                imageUri = trade.exitScreenshotUri,
+                                onClick = { onViewChart(true) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete trade",
-                            tint = colors.crimsonLoss,
-                            modifier = Modifier.size(16.dp)
-                        )
+                // Footer: Date & Actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = formattedDate,
+                        color = colors.textMuted,
+                        fontSize = 11.sp
+                    )
+
+                    Row {
+                        IconButton(
+                            onClick = onEdit,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit trade",
+                                tint = colors.indigoLight,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete trade",
+                                tint = colors.crimsonLoss,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun ChartThumbnailChip(
+    label: String,
+    imageUri: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LiquidTheme.colors
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (colors.isDark) Color(0x18FFFFFF) else Color(0x0C000000))
+            .border(1.dp, colors.indigoLight.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black)
+        ) {
+            SubcomposeAsyncImage(
+                model = imageUri,
+                contentDescription = label,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = colors.textPrimary,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                text = "Tap to enlarge",
+                color = colors.indigoLight,
+                fontSize = 9.sp
+            )
+        }
+        Icon(
+            imageVector = Icons.Default.ZoomIn,
+            contentDescription = null,
+            tint = colors.indigoLight,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+    }
 }
 
 @Composable

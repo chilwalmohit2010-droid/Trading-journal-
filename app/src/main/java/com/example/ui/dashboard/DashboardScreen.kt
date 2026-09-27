@@ -38,11 +38,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
@@ -84,9 +86,11 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.ResultBadge
 import com.example.ui.components.ScoreProgressionCard
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.CoolCreditBadge
 import com.example.ui.dialogs.AddEditTradeDialog
 import kotlin.math.abs
 import com.example.ui.dialogs.EditProfileDialog
+import com.example.ui.dialogs.ExportCsvDialog
 import com.example.ui.dialogs.ScoreGuideDialog
 import com.example.ui.journal.JournalView
 import com.example.ui.leaderboard.LeaderboardView
@@ -133,6 +137,7 @@ fun DashboardScreen(
     val colors = LiquidTheme.colors
     var selectedTab by remember { mutableStateOf(DashboardTab.OVERVIEW) }
     var isScoreGuideOpen by remember { mutableStateOf(false) }
+    var isExportCsvOpen by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -228,6 +233,7 @@ fun DashboardScreen(
                                 recentTrades = trades.take(5),
                                 onAddTradeClick = onOpenAddTrade,
                                 onViewAllJournal = { selectedTab = DashboardTab.JOURNAL },
+                                onOpenCalendar = { selectedTab = DashboardTab.JOURNAL },
                                 onScoreGuideClick = { isScoreGuideOpen = true }
                             )
 
@@ -239,7 +245,8 @@ fun DashboardScreen(
                                 onSearchChange = onSearchChange,
                                 onAddTradeClick = onOpenAddTrade,
                                 onEditTradeClick = onOpenEditTrade,
-                                onDeleteTradeClick = onDeleteTrade
+                                onDeleteTradeClick = onDeleteTrade,
+                                onExportCsvClick = { isExportCsvOpen = true }
                             )
 
                             DashboardTab.LEADERBOARD -> LeaderboardView(
@@ -264,7 +271,8 @@ fun DashboardScreen(
                                             }
                                         }
                                     },
-                                    onLogout = onLogout
+                                    onLogout = onLogout,
+                                    onExportCsvClick = { isExportCsvOpen = true }
                                 )
                             }
                         }
@@ -307,6 +315,14 @@ fun DashboardScreen(
     // Score Guide Modal Dialog
     if (isScoreGuideOpen) {
         ScoreGuideDialog(onDismiss = { isScoreGuideOpen = false })
+    }
+
+    // Export CSV Modal Dialog
+    if (isExportCsvOpen) {
+        ExportCsvDialog(
+            trades = trades,
+            onDismiss = { isExportCsvOpen = false }
+        )
     }
 }
 
@@ -368,7 +384,13 @@ private fun TopTradingHeader(
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // "made by mohit" cool font credit badge at edge of app
+            CoolCreditBadge()
+
             // Trading Score Pill
             Box(
                 contentAlignment = Alignment.Center,
@@ -407,6 +429,7 @@ private fun OverviewTabContent(
     recentTrades: List<Trade>,
     onAddTradeClick: () -> Unit,
     onViewAllJournal: () -> Unit,
+    onOpenCalendar: () -> Unit = {},
     onScoreGuideClick: () -> Unit
 ) {
     val colors = LiquidTheme.colors
@@ -608,6 +631,75 @@ private fun OverviewTabContent(
             currentScore = stats.currentScore,
             onScoreGuideClick = onScoreGuideClick
         )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Monthly Trading Calendar & Daily Heatmap Quick Access Card
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenCalendar)
+                .testTag("card_calendar_heatmap_preview"),
+            shape = RoundedCornerShape(20.dp),
+            borderColor = colors.indigoAccent.copy(alpha = 0.35f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.indigoDark.copy(alpha = 0.4f))
+                            .border(1.dp, colors.indigoLight.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = colors.indigoLight,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "TRADING CALENDAR & HEATMAP",
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "Interactive daily P&L, green & red days",
+                            color = colors.textMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "View",
+                        color = colors.indigoAccent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = colors.indigoAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(18.dp))
 

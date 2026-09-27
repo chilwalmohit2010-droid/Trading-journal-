@@ -26,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +69,7 @@ fun TradingDiaryApp(
     viewModel: TradingViewModel = viewModel()
 ) {
     val colors = LiquidTheme.colors
+    var showStartupIntro by remember { mutableStateOf(true) }
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val allTrades by viewModel.allTrades.collectAsStateWithLifecycle()
@@ -79,6 +83,13 @@ fun TradingDiaryApp(
     val isEditProfileOpen by viewModel.isEditProfileOpen.collectAsStateWithLifecycle()
     val isActionLoading by viewModel.isActionLoading.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+
+    if (showStartupIntro) {
+        com.example.ui.intro.StartupIntroAnimation(
+            onAnimationComplete = { showStartupIntro = false }
+        )
+        return
+    }
 
     // Key auth transitions strictly on top-level auth stage to prevent duplicate Dashboard instances and ghosting on data updates
     val authStage = when (authState) {
